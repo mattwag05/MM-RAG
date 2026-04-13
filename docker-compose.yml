@@ -1,0 +1,23 @@
+# mmrag dev compose. Mac dev: Ollama is on the host; the container reaches
+# it via host.docker.internal. Pi deploy: rewrite ollama_url to whichever
+# host runs Ollama on the tailnet.
+services:
+  mmrag:
+    build: .
+    image: mmrag:0.1.0
+    container_name: mmrag
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - mmrag-data:/data
+    environment:
+      MMRAG_DATA_DIR: /data
+      MMRAG_OLLAMA_URL: http://host.docker.internal:11434
+      MMRAG_API_HOST: 0.0.0.0
+      MMRAG_API_PORT: "8765"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  mmrag-data:

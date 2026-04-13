@@ -1,0 +1,390 @@
+# mmrag
+
+> **Edge-optimized multimodal RAG over video, audio, and images — exposed as an MCP server.**
+> Ingest a YouTube Short, a TikTok, a Reels link, or a local screen recording.
+> Get back a searchable transcript, a scene map, OCR, and a Gemma-4 reasoning layer
+> sitting on top of a single SQLite file. Runs on your Mac. Designed to also run
+> on a Raspberry Pi.
+
+`mmrag` is a single self-hosted process that turns raw video into something an
+AI agent can actually reason about. It's deliberately small, MIT-licensed, and
+biased toward retrieval over brute-force frame inference — so the "smart"
+multimodal model only sees the few seconds that actually matter.
+
+> **Status: v0.1.0 — Milestone 1 walking skeleton.**
+> Stages 1–2 (URL/file fetch + ffmpeg normalize) are wired end-to-end.
+> Stages 3–8 (scene detection, transcription, frame sampling, OCR, embeddings,
+> scene summaries) are scaffolded as stubs and ship in milestones M2–M4. See
+> the [roadmap](#roadmap).
+
+---
+
+## Why does this exist?
+
+When an agent sees a Reels link or a screen recording, it usually has nothing
+to work with. It can read the post caption. It can maybe describe a thumbnail.
+It cannot tell you what was actually said, what was on screen at 00:42, or
+which clip in your library is the one where the onboarding modal appears.
+
+`mmrag` fills that gap with a deliberately small set of moving parts:
+
+- **One SQLite file** — assets, jobs, scenes, transcripts, OCR, vectors, FTS.
+  No Qdrant, no Milvus, no Postgres. `sqlite-vec` lives inside the same DB.
+- **Retrieval first, reasoning second** — `mmrag` doesn't shove a 10-minute
+  video into a multimodal model. It splits the video into scenes, transcribes
+  the audio with `faster-whisper`, OCRs sampled frames, and embeds everything
+  into a hybrid (vector + BM25) index. Only the top-k retrieved evidence is
+  handed to Gemma 4 for a final answer.
+- **MCP-native** — four sharp tools: `ingest`, `ask`, `search`, `status`. Wire
+  them into Claude Code, Claude Desktop, or any MCP client.
+- **MIT-clean** — every Python dependency is MIT, Apache-2, BSD, or
+  public-domain. No GPL/AGPL. The two non-Python pieces (ffmpeg, Ollama+Gemma
+  weights) are required system installs, not bundled.
+
+---
+
+## What works today (M1)
+
+- ✅ `ingest(local_file)` — sync, full pipeline through ffmpeg normalize, asset row populated with `content_hash`, `duration_s`, `fps`, `width`, `height`, `mezzanine_path`, `audio_path`
+- ✅ `ingest(url)` via `yt-dlp` — best-effort URL fetch (any `yt-dlp`-supported source)
+- ✅ `ingest` job model is **sync-if-fast, async-if-slow**: blocks for up to `wait_ms` (default 30000) and returns either a finished result or a `job_id` to poll
+- ✅ Idempotent by content hash — re-ingesting the same file under a different URL is a no-op
+- ✅ `status(job_id)` returns the live stage + progress fraction + error info
+- ✅ Crash-resumable pipeline — restart the worker mid-job and it picks up at the recorded stage
+- ✅ FastMCP stdio server with all 4 tools registered
+- ✅ FastAPI REST mirror on `:8765` with the same surface
+- ✅ Background worker (`mmrag worker`) that drains the job queue
+- ✅ SQLite WAL store with migration runner
+- ✅ Subprocess wrapper with `SIGTERM → SIGKILL` escalation for hung ffmpeg/whisper
+- ✅ Pluggable `ModelProvider` slot for the eventual VLM swap
+- ✅ Pydantic schema contract tests for every MCP tool's input/output
+- ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
+- 🧱 `ask(...)` returns a valid-shape placeholder — real evidence assembly + Gemma inference lands in M4
+- 🧱 `search(...)` returns an empty hit list — FTS lands in M2, vector + hybrid in M3
+
+---
+
+## Quickstart (Mac)
+
+```bash
+brew install ffmpeg                   # required system binary (LGPL, not bundled)
+
+git clone <this repo>
+cd MM-RAG
+uv sync --extra dev                   # installs Python 3.13, deps, dev tools
+uv run mmrag init-db                  # creates ~/.local/share/mmrag/mmrag.db
+uv run mmrag serve-api &              # FastAPI REST on http://127.0.0.1:8765
+uv run mmrag worker &                 # drains the job queue
+
+# Smoke test against the checked-in fixture
+curl -s -X POST http://127.0.0.1:8765/ingest \
+  -H 'content-type: application/json' \
+  -d "{\"source\":\"$PWD/tests/fixtures/sample.mp4\",\"wait_ms\":15000}" | jq
+```
+
+You'll get back something like:
+
+```json
+{
+  "status": "done",
+  "asset_id": "999562c5-ba0f-4281-9d6e-e79e795999bd",
+  "job_id":   "fceef714-54b6-441e-9ec9-ec74921fac97",
+  "summary":  null,
+  "error":    null
+}
+```
+
+And then:
+
+```bash
+curl -s http://127.0.0.1:8765/asset/<asset_id> | jq
+```
+
+shows the populated asset row, including the `mezzanine_path` and `audio_path`
+on disk under `~/.local/share/mmrag/assets/<content_hash>/`.
+
+### Run the tests
+
+```bash
+uv run pytest -q
+```
+
+Test fixtures (a 3 s `mp4`, a 3 s `wav`, a 320×240 `png`) are generated on
+first run via `ffmpeg lavfi` sources into `tests/fixtures/` and gitignored.
+
+---
+
+## MCP tool surface
+
+```
+ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
+  → { status, asset_id, job_id, summary, error }
+
+ask(question, asset_id=None, time_range=None, top_k=5, model="gemma4:e4b")
+  → { answer, evidence: [{ asset_id, scene_id, start_s, end_s,
+                           summary, ocr_snippet, transcript_snippet }],
+      confidence }
+
+search(query, asset_id=None, top_k=10, mode="hybrid"|"vector"|"fts")
+  → { hits: [{ asset_id, scene_id, start_s, end_s, score, snippet }] }
+
+status(job_id)
+  → { status, stage, progress, asset_id, error }
+```
+
+**REST-only (intentionally not exposed to MCP):** `reindex`, `retry`,
+`delete_asset`, `bulk_import`. These are admin moves; agents shouldn't have
+those buttons.
+
+### Wiring it into Claude Code / Claude Desktop
+
+Add to your client's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "mmrag": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/MM-RAG", "mmrag", "serve-mcp"]
+    }
+  }
+}
+```
+
+Then in the chat: *"Ingest <some YouTube URL>, then ask what happens at the
+30-second mark."*
+
+---
+
+## Architecture
+
+```
+                ┌─────────────────────────────────────────────┐
+                │ MCP server (FastMCP, stdio)                 │
+                │ tools: ingest / ask / search / status       │
+                └───────────────┬─────────────────────────────┘
+                                │ shared handler implementations
+                ┌───────────────▼───────────────┐   ┌─────────────────┐
+                │ FastAPI REST mirror           │   │ Worker process  │
+                │ POST /ingest /ask /search     │◄──┤ drains job queue│
+                │ GET  /asset/{id} /jobs/{id}   │   │ (mmrag worker)  │
+                └───────────────┬───────────────┘   └────────▲────────┘
+                                │                            │
+                ┌───────────────▼────────────────────────────┴───────┐
+                │ Pipeline (async, idempotent, phase-1 / phase-2)    │
+                │ 1. fetch        (yt-dlp / local)                    │
+                │ 2. normalize    (ffmpeg → mp4 mezzanine + 16k mono) │
+                │ 3. scene_detect (PySceneDetect)         [M2]        │
+                │ 4. transcribe   (faster-whisper int8)   [M2]        │
+                │ 5. frame_sample (scene midpoint+1fps)   [M3]        │
+                │ 6. ocr          (Tesseract)             [M3]        │
+                │ 7. embed        (SigLIP image+text)     [M3]        │
+                │ 8. summarize    (gemma4:e2b)            [M4]        │
+                └────────────────┬───────────────────────────────────┘
+                                 │
+                        ┌────────▼─────────┐
+                        │ SQLite WAL       │
+                        │ + sqlite-vec     │
+                        │ + assets/<hash>/ │
+                        └────────┬─────────┘
+                                 │
+                        ┌────────▼─────────────────────────────┐
+                        │ Retrieval + reasoning (M4)           │
+                        │ - sqlite-vec ANN on scenes/frames    │
+                        │ - FTS5 BM25 on transcript/scenes     │
+                        │ - RRF hybrid rerank                  │
+                        │ - evidence pack → gemma4:e4b         │
+                        │ - returns answer + timestamps        │
+                        └─────────────────────────────────────┘
+```
+
+### Identity through `content_hash`
+
+Every asset is keyed on the SHA-256 of its canonical mezzanine file. This
+means re-ingesting the same video under a different URL is a no-op — the
+content hash collapses to the same `assets` row.
+
+### Pluggable VLM slot
+
+`mmrag.providers.base.ModelProvider` is an abstract base class with a single
+`generate(messages, config)` method. The default `OllamaProvider` talks to
+`gemma4:e4b` / `gemma4:e2b`. Swapping in a future `LLaVAVideoProvider` or
+`gemma4:video` is a constructor change, not a rewrite.
+
+---
+
+## License and dependencies
+
+`mmrag` itself is **MIT**. Every Python dependency is MIT, Apache-2, BSD, or
+public domain. No GPL/AGPL anywhere in the runtime tree.
+
+| Dep             | License        | Role                            |
+|-----------------|----------------|---------------------------------|
+| `fastapi`       | MIT            | REST mirror                     |
+| `mcp`           | MIT            | FastMCP server                  |
+| `pydantic`      | MIT            | I/O contracts                   |
+| `pydantic-settings` | MIT        | env-var config                  |
+| `httpx`         | BSD-3          | async HTTP client               |
+| `structlog`     | Apache-2/MIT   | structured logging              |
+| `typer`         | MIT            | CLI                             |
+| `yt-dlp`        | Unlicense (PD) | URL fetch                       |
+| `uvicorn`       | BSD-3          | ASGI server                     |
+| `setuptools`    | MIT            | build backend                   |
+
+Two non-Python pieces are required and **not bundled**:
+
+1. **`ffmpeg`** (LGPL) — install via `brew install ffmpeg` /
+   `apt install ffmpeg`. LGPL is fine for an MIT Python project as long as
+   we don't statically link or redistribute it, and we don't.
+2. **Ollama + Gemma 4 weights.** Install Ollama from
+   <https://ollama.com/download> and run `ollama pull gemma4:e4b` /
+   `ollama pull gemma4:e2b`. Gemma weights are released under Google's
+   Gemma terms (not MIT). `mmrag` does not bundle, redistribute, or
+   fine-tune them — it merely makes HTTP calls to a local Ollama process
+   you already trust.
+
+If you're allergic to those terms, the `ModelProvider` abstraction lets you
+plug in any other Ollama-served VLM (e.g. `qwen2-vl`, `minicpm-v`) by
+changing one constructor argument.
+
+---
+
+## "Why not X?"
+
+**Why not Qdrant or Milvus?** Because on a Raspberry Pi, a separate vector
+daemon is ~half a gig of resident memory you don't have and a second process
+you don't want to babysit. `sqlite-vec` lives inside the same SQLite file as
+everything else, has no daemon, and graduates to Qdrant the day it actually
+groans. (M3 makes this swap a one-liner via the `ModelProvider` pattern.)
+
+**Why no speaker diarization?** `pyannote.audio` is MIT *code*, but the
+pretrained diarization models are HuggingFace-gated under non-MIT terms,
+which makes it dirty for an MIT project that wants to ship without surprises.
+Diarization is deferred to v0.2 via `sherpa-onnx` (Apache-2). For
+short-form social content (the primary use case) you rarely care *who* spoke.
+
+**Why Gemma 4 and not a "real" video VLM?** Because it runs on the kind of
+hardware you actually have. Gemma 4 has hard limits — 30 s of audio, ~60 s of
+video frames in a single call — so it can't be the long-video engine on its
+own. `mmrag` works around this by retrieving the top-k relevant 5–15 second
+moments first and only handing those to Gemma. The architecture has a
+pluggable slot for a dedicated video VLM (LLaVA-Video, VideoLLaMA, future
+`gemma4:video`) when the temporal reasoning needs more.
+
+**Why is `ingest` synchronous if I pass `wait_ms`?** Because most of what
+people actually ingest interactively is short-form social content (Reels,
+Shorts, TikToks). The 30-second default is enough for the bread-and-butter
+case to feel synchronous; long videos correctly fall back to polling without
+changing the agent's tool-call shape.
+
+**Why no UI?** Because the MCP tools and the REST mirror are the surface.
+A UI would be a separate project layered on top.
+
+---
+
+## Roadmap
+
+Tracked in `bd` (run `bd ready` to see open work). Each milestone is
+independently testable; the project pauses for review between them.
+
+| Milestone | Status | Scope |
+|-----------|:------:|-------|
+| **M1** | ✅ | Walking skeleton: project layout, `uv` + Python 3.13, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
+| M2 | 🧱 | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
+| M3 | 🧱 | Frame sampling + Tesseract OCR + SigLIP image+text embeddings + sqlite-vec hybrid retrieval (RRF) |
+| M4 | 🧱 | Per-scene summaries via `gemma4:e2b` + `ask` evidence-pack assembly + final answer via `gemma4:e4b` with `e2b` fallback |
+| M5 | 🧱 | Social Bookmarks Triage REST integration (`push_to_sbt=true`, idempotent `postId` hash, Prisma migration on the SBT side adding `transcriptText` to its FTS) |
+| M6 | 🧱 | Raspberry Pi deploy (multi-arch Docker, FIFO+systemd harness, ARM-tuned defaults) |
+
+**Deferred to v0.2+** (tracked, not forgotten): speaker diarization,
+PaddleOCR, dedicated video VLM, UI/screen-recording mode with dense frame
+sampling and scene diffing.
+
+---
+
+## Project layout
+
+```
+MM-RAG/
+├── pyproject.toml             # uv project, MIT license metadata, setuptools backend
+├── README.md
+├── LICENSE                    # MIT
+├── Dockerfile
+├── docker-compose.yml         # mmrag + bind-mount + host Ollama
+├── docs/
+│   └── architecture.md        # in-repo design (slim copy of the planning spec)
+├── tests/
+│   ├── conftest.py            # generates fixtures via ffmpeg lavfi
+│   ├── test_contract.py       # pydantic schema validation for every MCP tool
+│   ├── test_pipeline_fetch.py
+│   └── test_pipeline_normalize.py
+└── src/mmrag/
+    ├── cli.py                 # typer: serve-mcp | serve-api | worker | init-db
+    ├── config.py              # pydantic-settings (data_dir, ollama_url, ...)
+    ├── logging.py             # structlog setup
+    ├── mcp_server.py          # FastMCP app (4 tools)
+    ├── api.py                 # FastAPI REST mirror
+    ├── worker.py              # job-queue drain
+    ├── sbt_client.py          # Social Bookmarks Triage REST client (M5)
+    ├── db/
+    │   ├── connection.py      # WAL pragma, transaction helpers
+    │   ├── migrations.py      # idempotent migration runner
+    │   └── sql/
+    │       └── 0001_m1_init.sql
+    ├── models/
+    │   ├── asset.py
+    │   ├── job.py             # JobStatus, Stage enums
+    │   └── mcp_io.py          # IngestInput/Output, AskInput/Output, ...
+    ├── handlers/
+    │   ├── ingest.py          # sync-fast / async-slow branch
+    │   ├── ask.py             # placeholder (M4)
+    │   ├── search.py          # placeholder (M2/M3)
+    │   └── status.py
+    ├── pipeline/
+    │   ├── runner.py          # orchestrates stages, persists state per stage
+    │   ├── subprocess_util.py # SIGTERM → SIGKILL escalation
+    │   └── stages/
+    │       ├── fetch.py       # M1 — yt-dlp / local
+    │       ├── normalize.py   # M1 — ffmpeg mezzanine + 16k mono wav
+    │       ├── scene_detect.py    # stub → M2
+    │       ├── transcribe.py      # stub → M2
+    │       ├── frame_sample.py    # stub → M3
+    │       ├── ocr.py             # stub → M3
+    │       ├── embed.py           # stub → M3
+    │       └── summarize.py       # stub → M4
+    └── providers/
+        ├── base.py            # ModelProvider ABC
+        └── ollama.py          # OllamaProvider shell (M4 ships the real impl)
+```
+
+---
+
+## Configuration
+
+All runtime config is via env vars (`MMRAG_*`) or `.env`. See
+[.env.example](./.env.example) for the full list. The defaults are
+sensible for Mac dev; Pi deployment overrides `MMRAG_OLLAMA_URL`,
+`MMRAG_WORKER_CONCURRENCY`, and the data dir.
+
+---
+
+## Contributing
+
+This is a personal project, but the design is documented end-to-end (see
+`docs/architecture.md` and the original planning spec) and milestones are
+tracked in `bd`. The non-negotiable rules:
+
+1. **Stay MIT-clean.** Every new dependency must be MIT, Apache-2, BSD, or
+   public domain. Flag anything else before adding it.
+2. **Keep the MCP surface to four tools.** Add admin endpoints to REST, not
+   to MCP.
+3. **One sharp tool beats five mediocre ones.** Don't bloat the surface to
+   wallpaper over a missing feature.
+4. **Pipeline stages stay idempotent and resumable.** Crash recovery is a
+   first-class requirement, not an afterthought.
+
+---
+
+## License
+
+[MIT](./LICENSE) © 2026 Matthew Wagner

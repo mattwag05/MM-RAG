@@ -1,0 +1,75 @@
+[project]
+name = "mmrag"
+version = "0.1.0"
+description = "Edge-optimized multimodal ingestion tool with an MCP server interface. Ingests video/audio/image, retrieves with sqlite-vec, reasons with Ollama-hosted Gemma 4."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Matthew Wagner" }]
+requires-python = ">=3.11,<3.14"
+keywords = ["mcp", "multimodal", "rag", "video", "ollama", "gemma", "edge"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS :: MacOS X",
+  "Topic :: Multimedia :: Video",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Milestone 1 deps only. Heavy ML deps (faster-whisper, open_clip, torch,
+# pytesseract, sqlite-vec, PySceneDetect) are added in their respective
+# milestones to keep the M1 install fast and the M1 surface honest.
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "mcp>=1.2",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "httpx>=0.27",
+  "structlog>=24.4",
+  "typer>=0.13",
+  "yt-dlp>=2024.11.04",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.7",
+]
+
+[project.scripts]
+mmrag = "mmrag.cli:app"
+
+[build-system]
+# setuptools is used (rather than hatchling) because hatchling's default
+# editable install creates `_<name>.pth`, which Python 3.13+ silently skips
+# as a "hidden" .pth file. Setuptools editable installs use non-underscored
+# filenames and work out of the box on 3.13.
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mmrag*"]
+
+[tool.setuptools.package-data]
+mmrag = ["db/sql/*.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "SIM"]
+ignore = ["E501"]  # handled by formatter
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]
