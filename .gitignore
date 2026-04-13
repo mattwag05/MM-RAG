@@ -35,6 +35,9 @@ data/
 tests/fixtures/sample.mp4
 tests/fixtures/sample.wav
 tests/fixtures/sample.png
+tests/fixtures/multishot.mp4
+tests/fixtures/speech.wav
+tests/fixtures/speech.mp4
 
 # claude code session state
 .claude/

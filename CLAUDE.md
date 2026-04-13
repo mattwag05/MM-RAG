@@ -61,25 +61,32 @@ bd close <id>         # Complete work
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
 
-## Status (v0.1.0 — M1 walking skeleton)
+## Status (v0.1.0 — M2 speech pipeline)
 
 What's wired end-to-end today:
 - `uv` project on Python 3.13, **setuptools** backend (NOT hatchling — see "Gotchas")
 - FastMCP stdio server with all 4 tools (`mmrag serve-mcp`)
 - FastAPI REST mirror on `:8765` (`mmrag serve-api`)
 - Background worker that drains the job queue (`mmrag worker`)
-- SQLite WAL store, migration runner, M1 schema (`assets`, `jobs`, `schema_migrations`)
-- Pipeline stages 1 (fetch via yt-dlp / local file) and 2 (ffmpeg normalize)
-- Stages 3–8 are no-op stubs that return `{stub: "m2"}`-style patches; the
+- SQLite WAL store, migration runner, M1 + M2 schema (`assets`, `jobs`,
+  `shots`, `transcript_segments`, `fts_transcript`)
+- Pipeline stages 1–4 live: fetch (yt-dlp / local file) → ffmpeg normalize →
+  PySceneDetect `ContentDetector` → faster-whisper `tiny.en` int8
+- Stages 5–8 (frame_sample, ocr, embed, summarize) remain no-op stubs; the
   runner walks all 8 so progress reporting works through to `done`
-- Pydantic schema contract tests + pytest pipeline tests with auto-generated
-  ffmpeg lavfi fixtures (15/15 passing)
+- Runner persists shots + transcript segments incrementally after each
+  stage (idempotent via UNIQUE keys, so re-ingest is a no-op)
+- `search` tool runs FTS5 BM25 over transcripts (`fts_transcript`), scoped
+  by optional `asset_id` and `top_k`, snippet-highlighted
+- Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
+  ingest → search round-trip using a TTS-generated speech fixture
+  (40/40 passing on macOS with `say`; integration tests auto-skip if no
+  TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
 - `ModelProvider` ABC with `OllamaProvider` shell (M4 ships the real impl)
 - Dockerfile + docker-compose for Mac dev (Pi-targeted M6)
 
 Open milestones (see `bd ready`):
-- **M2** — speech (PySceneDetect + faster-whisper + FTS5 transcript)
 - **M3** — visual (frame sampling + Tesseract OCR + SigLIP + sqlite-vec hybrid)
 - **M4** — reasoning (scene summaries + ask evidence pack + Gemma 4 fallback)
 - **M5** — Social Bookmarks Triage REST integration (`push_to_sbt`)
@@ -96,7 +103,7 @@ make init-db                              # create the SQLite DB at MMRAG_DATA_D
 make serve-api                            # FastAPI on :8765
 make serve-mcp                            # FastMCP over stdio
 make worker                               # drain the job queue
-make test                                 # full test suite (15 tests)
+make test                                 # full test suite (40 tests)
 ```
 
 ## Where things live
@@ -107,7 +114,7 @@ make test                                 # full test suite (15 tests)
 | REST mirror | `src/mmrag/api.py` |
 | Tool handlers (shared by MCP + REST) | `src/mmrag/handlers/` |
 | Pipeline runner + stages | `src/mmrag/pipeline/runner.py`, `src/mmrag/pipeline/stages/` |
-| DB schema (M1) | `src/mmrag/db/sql/0001_m1_init.sql` |
+| DB schema | `src/mmrag/db/sql/0001_m1_init.sql`, `0002_m2_speech.sql` |
 | Pydantic I/O models | `src/mmrag/models/mcp_io.py` |
 | Settings (env-var driven) | `src/mmrag/config.py` |
 | Tests | `tests/test_contract.py`, `tests/test_pipeline_*.py` |

@@ -62,6 +62,72 @@ def _record_error(job_id: str, kind: str, message: str) -> None:
         )
 
 
+def _persist_shots(*, asset_id: str, shots: list[dict]) -> None:
+    """Upsert shot rows for an asset. Idempotent via UNIQUE(asset_id, shot_idx)."""
+    if not shots:
+        return
+    with connect() as conn, transaction(conn):
+        for shot in shots:
+            conn.execute(
+                """
+                INSERT INTO shots (asset_id, shot_idx, start_s, end_s)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(asset_id, shot_idx) DO UPDATE SET
+                    start_s = excluded.start_s,
+                    end_s = excluded.end_s
+                """,
+                (
+                    asset_id,
+                    int(shot["shot_idx"]),
+                    float(shot["start_s"]),
+                    float(shot["end_s"]),
+                ),
+            )
+
+
+def _persist_segments(*, asset_id: str, segments: list[dict]) -> None:
+    """Upsert transcript segments + map shot_idx → shot.id for the FK.
+
+    Idempotent via UNIQUE(asset_id, seg_idx). FTS index is kept in sync by
+    the triggers on transcript_segments.
+    """
+    if not segments:
+        return
+    with connect() as conn, transaction(conn):
+        shot_rows = conn.execute(
+            "SELECT id, shot_idx FROM shots WHERE asset_id = ?",
+            (asset_id,),
+        ).fetchall()
+        shot_id_by_idx: dict[int, int] = {
+            int(r["shot_idx"]): int(r["id"]) for r in shot_rows
+        }
+        for seg in segments:
+            shot_idx = seg.get("shot_idx")
+            shot_id = (
+                shot_id_by_idx.get(int(shot_idx)) if shot_idx is not None else None
+            )
+            conn.execute(
+                """
+                INSERT INTO transcript_segments
+                    (asset_id, shot_id, seg_idx, start_s, end_s, text)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(asset_id, seg_idx) DO UPDATE SET
+                    shot_id = excluded.shot_id,
+                    start_s = excluded.start_s,
+                    end_s = excluded.end_s,
+                    text = excluded.text
+                """,
+                (
+                    asset_id,
+                    shot_id,
+                    int(seg["seg_idx"]),
+                    float(seg["start_s"]),
+                    float(seg["end_s"]),
+                    str(seg["text"]),
+                ),
+            )
+
+
 def _upsert_asset(state: dict) -> None:
     """Persist the assets row from accumulated pipeline state."""
     with connect() as conn, transaction(conn):
@@ -127,7 +193,10 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
     if stage is Stage.SCENE_DETECT:
         return await scene_detect(mezzanine_path=state.get("mezzanine_path"))
     if stage is Stage.TRANSCRIBE:
-        return await transcribe(audio_path=state.get("audio_path"))
+        return await transcribe(
+            audio_path=state.get("audio_path"),
+            shots=state.get("shots", []),
+        )
     if stage is Stage.FRAME_SAMPLE:
         return await frame_sample(
             mezzanine_path=state.get("mezzanine_path"), mode=mode
@@ -136,12 +205,12 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
         return await ocr(frames=state.get("frames", []))
     if stage is Stage.EMBED:
         return await embed(
-            scenes=state.get("scenes", []),
+            shots=state.get("shots", []),
             frames=state.get("frames", []),
             segments=state.get("segments", []),
         )
     if stage is Stage.SUMMARIZE:
-        return await summarize(scenes=state.get("scenes", []))
+        return await summarize(shots=state.get("shots", []))
     raise ValueError(f"unknown stage: {stage}")
 
 
@@ -188,6 +257,16 @@ async def run_pipeline(job_id: str) -> None:
                 # Persist the asset row as soon as we know the canonical
                 # technical metadata, so that GET /asset/{id} works mid-job.
                 _upsert_asset(state)
+            elif stage is Stage.SCENE_DETECT and state.get("asset_id"):
+                _persist_shots(
+                    asset_id=state["asset_id"],
+                    shots=state.get("shots", []),
+                )
+            elif stage is Stage.TRANSCRIBE and state.get("asset_id"):
+                _persist_segments(
+                    asset_id=state["asset_id"],
+                    segments=state.get("segments", []),
+                )
             progress = (idx + 1) / n_stages
             _persist_state(job_id, _strip_internal(state), stage, progress)
             log.info(

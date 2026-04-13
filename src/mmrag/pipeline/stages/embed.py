@@ -3,5 +3,5 @@
 from __future__ import annotations
 
 
-async def embed(*, scenes: list[dict], frames: list[dict], segments: list[dict]) -> dict:
+async def embed(*, shots: list[dict], frames: list[dict], segments: list[dict]) -> dict:
     return {"vectors_written": 0, "stub": "m3"}
