@@ -71,16 +71,24 @@ brew install ffmpeg                   # required system binary (LGPL, not bundle
 
 git clone <this repo>
 cd MM-RAG
-uv sync --extra dev                   # installs Python 3.13, deps, dev tools
-uv run mmrag init-db                  # creates ~/.local/share/mmrag/mmrag.db
-uv run mmrag serve-api &              # FastAPI REST on http://127.0.0.1:8765
-uv run mmrag worker &                 # drains the job queue
+make sync-dev                         # installs Python 3.13, runtime + dev deps into .venv.nosync/
+make init-db                          # creates ~/.local/share/mmrag/mmrag.db
+make serve-api &                      # FastAPI REST on http://127.0.0.1:8765
+make worker &                         # drains the job queue
 
 # Smoke test against the checked-in fixture
 curl -s -X POST http://127.0.0.1:8765/ingest \
   -H 'content-type: application/json' \
   -d "{\"source\":\"$PWD/tests/fixtures/sample.mp4\",\"wait_ms\":15000}" | jq
 ```
+
+> **Why `make` instead of `uv` directly?** The Makefile pins
+> `UV_PROJECT_ENVIRONMENT=.venv.nosync` so the virtualenv lives in a
+> directory iCloud Drive ignores. Without that, iCloud sets the macOS
+> `UF_HIDDEN` flag on `.pth` files, which Python 3.13 silently skips, and
+> the editable install becomes invisible. If your project root is *not*
+> inside an iCloud-synced directory, `uv sync` directly works fine —
+> see CLAUDE.md "Gotchas" for the full story.
 
 You'll get back something like:
 
@@ -106,7 +114,7 @@ on disk under `~/.local/share/mmrag/assets/<content_hash>/`.
 ### Run the tests
 
 ```bash
-uv run pytest -q
+make test
 ```
 
 Test fixtures (a 3 s `mp4`, a 3 s `wav`, a 320×240 `png`) are generated on

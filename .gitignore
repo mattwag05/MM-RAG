@@ -11,6 +11,7 @@ htmlcov/
 build/
 dist/
 .venv/
+.venv.nosync/
 venv/
 
 # uv

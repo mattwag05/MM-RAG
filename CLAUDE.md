@@ -87,13 +87,16 @@ Open milestones (see `bd ready`):
 
 ## Build & Test
 
+**Always go through `make`** — never `uv` directly, because the Makefile
+pins the venv outside the iCloud sync path (see Gotchas).
+
 ```bash
-uv sync --extra dev                       # install runtime + dev deps
-uv run mmrag init-db                      # create the SQLite DB at MMRAG_DATA_DIR
-uv run mmrag serve-api                    # FastAPI on :8765
-uv run mmrag serve-mcp                    # FastMCP over stdio
-uv run mmrag worker                       # drain the job queue
-uv run pytest -q                          # full test suite (15 tests)
+make sync-dev                             # install runtime + dev deps into .venv.nosync/
+make init-db                              # create the SQLite DB at MMRAG_DATA_DIR
+make serve-api                            # FastAPI on :8765
+make serve-mcp                            # FastMCP over stdio
+make worker                               # drain the job queue
+make test                                 # full test suite (15 tests)
 ```
 
 ## Where things live
@@ -142,11 +145,21 @@ See `docs/architecture.md` for the diagram and the full data flow.
 
 ## Gotchas (paid in blood during M1)
 
+- **The venv MUST live at `.venv.nosync/`, not `.venv/`.** The project root
+  is on the macOS Desktop, which iCloud Drive syncs. iCloud sets the macOS
+  `UF_HIDDEN` flag on `.pth` files inside synced directories (and creates
+  ` 2`-suffixed duplicates when you re-sync). Python 3.13's `site.py` then
+  silently skips any `.pth` file with the hidden flag, and your editable
+  install becomes invisible. The `.nosync` suffix tells iCloud to leave the
+  directory alone. The `Makefile` pins `UV_PROJECT_ENVIRONMENT=.venv.nosync`
+  so this happens automatically — **always go through `make`**, never `uv`
+  directly. If you have to use `uv` directly, prefix it with
+  `UV_PROJECT_ENVIRONMENT=.venv.nosync`.
 - **Don't use hatchling as the build backend on Python 3.13.** Hatchling's
-  default editable install creates `_<name>.pth`, which Python 3.13 silently
-  skips because of the macOS `UF_HIDDEN` flag check in `site.py`. `mmrag`
-  uses `setuptools` for exactly this reason — the pyproject.toml comment
-  explains it. Don't switch back without a permanent fix.
+  default editable install creates `_<name>.pth`. Even outside iCloud, that
+  filename can also trip Python 3.13's hidden-file check in `site.py`.
+  `mmrag` uses `setuptools` for exactly this reason — the pyproject.toml
+  comment explains it. Don't switch back without a permanent fix.
 - **`executescript()` implicitly commits.** SQLite's `executescript` calls
   `commit` before running, so wrapping it in a manual `BEGIN/COMMIT`
   context manager fails with "cannot commit - no transaction is active."
