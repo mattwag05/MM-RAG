@@ -19,9 +19,8 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Milestone 1 deps only. Heavy ML deps (faster-whisper, open_clip, torch,
-# pytesseract, sqlite-vec, PySceneDetect) are added in their respective
-# milestones to keep the M1 install fast and the M1 surface honest.
+# Heavy ML deps (open_clip, pytesseract, sqlite-vec) are still added in
+# their respective milestones. M2 brings in scenedetect + faster-whisper.
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",
@@ -32,6 +31,9 @@ dependencies = [
   "structlog>=24.4",
   "typer>=0.13",
   "yt-dlp>=2024.11.04",
+  # M2 — speech pipeline
+  "scenedetect[opencv]>=0.6.4,<0.7",  # BSD-3
+  "faster-whisper>=1.0.3,<2.0",       # MIT
 ]
 
 [project.optional-dependencies]

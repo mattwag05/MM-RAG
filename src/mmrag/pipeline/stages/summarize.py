@@ -3,5 +3,5 @@
 from __future__ import annotations
 
 
-async def summarize(*, scenes: list[dict]) -> dict:
+async def summarize(*, shots: list[dict]) -> dict:
     return {"summaries": [], "stub": "m4"}
