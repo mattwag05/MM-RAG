@@ -1,4 +1,4 @@
-"""End-to-end M2 integration: ingest a speech clip → DB has shots + segments."""
+"""End-to-end M2 integration: ingest a speech clip → DB has scenes + segments."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from tests.conftest import SAMPLE_MP4
 
 
 @pytest.mark.asyncio
-async def test_ingest_sample_mp4_persists_shots(isolated_data_dir: Path) -> None:
-    """The sine-tone testsrc clip has no visual cuts → one fallback shot
-    should land in the shots table. This exercises the runner hook without
+async def test_ingest_sample_mp4_persists_scenes(isolated_data_dir: Path) -> None:
+    """The sine-tone testsrc clip has no visual cuts → one fallback scene
+    should land in the scenes table. This exercises the runner hook without
     depending on a TTS tool being available."""
     result = await handle_ingest(
         IngestInput(source=str(SAMPLE_MP4), wait_ms=120000)
@@ -27,12 +27,12 @@ async def test_ingest_sample_mp4_persists_shots(isolated_data_dir: Path) -> None
 
     with connect() as conn:
         rows = conn.execute(
-            "SELECT shot_idx, start_s, end_s FROM shots "
-            "WHERE asset_id = ? ORDER BY shot_idx",
+            "SELECT scene_idx, start_s, end_s FROM scenes "
+            "WHERE asset_id = ? ORDER BY scene_idx",
             (asset_id,),
         ).fetchall()
     assert len(rows) >= 1
-    assert rows[0]["shot_idx"] == 0
+    assert rows[0]["scene_idx"] == 0
 
 
 @pytest.mark.asyncio
