@@ -49,6 +49,7 @@ m3-visual = [
   "Pillow>=10.0",
   "sqlite-vec>=0.1.0",
   "numpy>=1.26",
+  "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
 ]
 
 [project.scripts]
