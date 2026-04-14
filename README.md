@@ -11,11 +11,10 @@ AI agent can actually reason about. It's deliberately small, MIT-licensed, and
 biased toward retrieval over brute-force frame inference — so the "smart"
 multimodal model only sees the few seconds that actually matter.
 
-> **Status: v0.1.0 — Milestone 1 walking skeleton.**
-> Stages 1–2 (URL/file fetch + ffmpeg normalize) are wired end-to-end.
-> Stages 3–8 (scene detection, transcription, frame sampling, OCR, embeddings,
-> scene summaries) are scaffolded as stubs and ship in milestones M2–M4. See
-> the [roadmap](#roadmap).
+> **Status: v0.1.0 (M3 visual pipeline shipped).**
+> Stages 1–7 wired end-to-end: fetch → normalize → scene_detect → transcribe
+> → frame_sample → ocr → embed. Stage 8 (summarize) is still a stub and ships
+> in M4. See the [roadmap](#roadmap).
 
 ---
 
@@ -43,7 +42,7 @@ which clip in your library is the one where the onboarding modal appears.
 
 ---
 
-## What works today (M1)
+## What works today (M3)
 
 - ✅ `ingest(local_file)` — sync, full pipeline through ffmpeg normalize, asset row populated with `content_hash`, `duration_s`, `fps`, `width`, `height`, `mezzanine_path`, `audio_path`
 - ✅ `ingest(url)` via `yt-dlp` — best-effort URL fetch (any `yt-dlp`-supported source)
@@ -60,7 +59,9 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Pydantic schema contract tests for every MCP tool's input/output
 - ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
 - 🧱 `ask(...)` returns a valid-shape placeholder — real evidence assembly + Gemma inference lands in M4
-- 🧱 `search(...)` returns an empty hit list — FTS lands in M2, vector + hybrid in M3
+- ✅ `search(...)` supports three modes: `fts` (BM25 over transcript + OCR),
+  `vector` (SigLIP cosine over frame/transcript embeddings), and `hybrid`
+  (RRF fusion across all four streams).
 
 ---
 
@@ -345,7 +346,9 @@ MM-RAG/
     │   ├── connection.py      # WAL pragma, transaction helpers
     │   ├── migrations.py      # idempotent migration runner
     │   └── sql/
-    │       └── 0001_m1_init.sql
+    │       ├── 0001_m1_init.sql
+    │       ├── 0002_m2_speech.sql
+    │       └── 0003_m3_visual.sql
     ├── models/
     │   ├── asset.py
     │   ├── job.py             # JobStatus, Stage enums
@@ -361,11 +364,11 @@ MM-RAG/
     │   └── stages/
     │       ├── fetch.py       # M1 — yt-dlp / local
     │       ├── normalize.py   # M1 — ffmpeg mezzanine + 16k mono wav
-    │       ├── scene_detect.py    # stub → M2
-    │       ├── transcribe.py      # stub → M2
-    │       ├── frame_sample.py    # stub → M3
-    │       ├── ocr.py             # stub → M3
-    │       ├── embed.py           # stub → M3
+    │       ├── scene_detect.py    # M2 — PySceneDetect ContentDetector
+    │       ├── transcribe.py      # M2 — faster-whisper int8 + word timestamps
+    │       ├── frame_sample.py    # M3 — scene midpoints + stride sampling
+    │       ├── ocr.py             # M3 — Tesseract PSM 6
+    │       ├── embed.py           # M3 — SigLIP-base-patch16-256 (768-d)
     │       └── summarize.py       # stub → M4
     └── providers/
         ├── base.py            # ModelProvider ABC
