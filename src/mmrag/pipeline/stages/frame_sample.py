@@ -27,21 +27,39 @@ _FRAME_TIMEOUT_S = 15.0
 
 def _sample_times(start_s: float, end_s: float) -> list[float]:
     """Return sample timestamps for a scene: midpoint first, then 2s strides
-    on long scenes (start_s+1.0, start_s+3.0, ...) up to end_s-0.5."""
+    on long scenes (start_s+1.0, start_s+3.0, ...) up to end_s-0.5.
+
+    Deduped while preserving order so an even-duration scene (e.g. 0..14s)
+    doesn't emit the midpoint twice via a colliding stride sample.
+    """
     midpoint = (start_s + end_s) / 2.0
-    times = [midpoint]
+    candidates: list[float] = [midpoint]
     if end_s - start_s > _LONG_SCENE_THRESHOLD_S:
         t = start_s + 1.0
         while t < end_s - 0.5:
-            times.append(t)
+            candidates.append(t)
             t += _STRIDE_S
-    return times
+    # Dedup while preserving order — uses rounded key so float drift
+    # from repeated +2.0 additions doesn't bypass the set membership check.
+    seen: set[float] = set()
+    out: list[float] = []
+    for t in candidates:
+        key = round(t, 3)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+    return out
 
 
 async def _write_one_frame(
     mezzanine_path: str, t_s: float, out_path: Path
 ) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Fast seek: `-ss` before `-i` lands on the nearest keyframe before t_s.
+    # Trades pixel-exact accuracy for speed (~10x faster on long files).
+    # Acceptable because OCR and SigLIP tolerate ±1-2 frame drift, and the
+    # Pi target cannot afford the decode cost of slow seek (`-ss` after `-i`).
     await run(
         [
             "ffmpeg", "-y",
