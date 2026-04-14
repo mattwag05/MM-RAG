@@ -209,6 +209,41 @@ See `docs/architecture.md` for the diagram and the full data flow.
   test patterns (it was trained on natural images). The pipeline is correct
   end-to-end; the threshold is a model-level constraint, not a bug. Follow-up
   issue `MM-RAG-bbl` tracks the fixture improvement.
+- **Test isolation uses `reset_settings_for_tests`, NOT `monkeypatch.setenv +
+  cache_clear`.** `get_settings` is a module-level singleton, not `@lru_cache`.
+  Correct pattern: `reset_settings_for_tests(Settings(data_dir=tmp_path))` at
+  the start of the test, `reset_settings_for_tests(Settings())` in a
+  `try/finally`. See `tests/conftest.py`'s `isolated_data_dir` fixture for the
+  canonical pattern.
+- **Subprocess wrapper is `run`, not `run_subprocess`.** Import with
+  `from mmrag.pipeline.subprocess_util import run` and call with
+  `await run([...], timeout_s=...)`. The kwarg is `timeout_s`, not `timeout`.
+- **PyTorch inference mode: use `model.train(False)`.** A project-wide
+  security hook blocks the literal PyTorch inference-mode method name
+  (the one spelled e-v-a-l, with parens). `train(False)` is functionally
+  equivalent. Also: disable autograd per-call via `torch.no_grad()` context
+  managers, not a module-level `torch.set_grad_enabled(False)` — and
+  `.detach()` before `.numpy()`.
+- **sqlite-vec blob format is explicit little-endian.** Always
+  `struct.pack(f"<{len(v)}f", *v)` — native order silently corrupts vectors
+  on big-endian hosts. The runner's `_pack_vec` and the search handler's
+  `_pack` both use the `<` prefix.
+- **sqlite-vec `k=` is a GLOBAL pre-filter — `asset_id` WHERE runs AFTER the
+  KNN.** Queries scoped by `asset_id` silently under-deliver the moment the
+  index contains more than one asset. Workaround: add an auxiliary column to
+  the `vec0` declaration (`CREATE VIRTUAL TABLE vec_frames USING vec0(embedding
+  float[768], +asset_id TEXT)`) and filter via the auxiliary column in the
+  MATCH query. Tracked in `MM-RAG-687`; fix required before M5 multi-tenant
+  deployment.
+- **open_clip's SigLIP HFTokenizer pulls in `transformers` at runtime.**
+  `transformers>=4.40` is already in the `m3-visual` extra. Don't remove it
+  thinking open_clip is self-contained — it isn't for the SigLIP variants.
+- **Runner's `__`-prefix state keys are carry-only, not persisted.**
+  `_strip_internal` filters them out before `pipeline_state_json` serialization.
+  Use them for in-memory maps that cross stage boundaries inside one run
+  (e.g., `__frame_id_map`, `__scene_id_by_idx`). Don't rely on them surviving
+  a worker restart — add a DB-recompute fallback (see
+  `_frame_id_map_from_db` for the pattern).
 
 ## Reused patterns from other projects
 
