@@ -18,6 +18,8 @@ log = get_logger("stage.scene_detect")
 
 
 def _detect_scenes_sync(mezzanine_path: str) -> list[dict]:
+    # Imported lazily so `mmrag` still imports cleanly if scenedetect is
+    # somehow absent at runtime (e.g. a stripped M1-era install).
     from scenedetect import ContentDetector, SceneManager, open_video
 
     video = open_video(mezzanine_path)
@@ -28,6 +30,8 @@ def _detect_scenes_sync(mezzanine_path: str) -> list[dict]:
 
     scenes: list[dict] = []
     if not scene_list:
+        # Uniform content — emit a single scene covering the whole clip so
+        # downstream stages don't have to special-case the zero-scene path.
         duration_s = float(video.duration.get_seconds()) if video.duration else 0.0
         scenes.append({"scene_idx": 0, "start_s": 0.0, "end_s": duration_s})
         return scenes
