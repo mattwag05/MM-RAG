@@ -12,9 +12,10 @@ pytestmark = pytest.mark.m3_visual  # vec_* requires the extra
 
 
 def _table_names(conn) -> set[str]:
+    """Return the names of all regular and virtual tables (virtual tables
+    surface as type='table' in sqlite_master — there is no 'virtual' type)."""
     rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type IN ('table','virtual') "
-        "OR (type='table' AND sql LIKE 'CREATE VIRTUAL%')"
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
     ).fetchall()
     return {r["name"] for r in rows}
 

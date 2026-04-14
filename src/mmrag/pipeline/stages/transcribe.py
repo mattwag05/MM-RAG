@@ -62,6 +62,7 @@ def _assign_scene(start_s: float, scenes: list[dict]) -> int | None:
     for s in scenes:
         if s["start_s"] <= start_s < s["end_s"]:
             return int(s["scene_idx"])
+    # Past the last scene's start? Snap to the final scene.
     if start_s >= scenes[-1]["start_s"]:
         return int(scenes[-1]["scene_idx"])
     return None
