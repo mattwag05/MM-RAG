@@ -130,7 +130,9 @@ def _persist_segments(*, asset_id: str, segments: list[dict]) -> None:
 
 
 def _pack_vec(v: list[float]) -> bytes:
-    return struct.pack(f"{len(v)}f", *v)
+    # Explicit little-endian — sqlite-vec's vec0 expects LE float32 blobs,
+    # and native-order struct packing silently produces wrong vectors on BE.
+    return struct.pack(f"<{len(v)}f", *v)
 
 
 def _persist_frames(
@@ -268,6 +270,29 @@ def _segment_id_by_idx(asset_id: str) -> dict[int, int]:
             (asset_id,),
         ).fetchall()
     return {int(r["seg_idx"]): int(r["id"]) for r in rows}
+
+
+def _frame_id_map_from_db(asset_id: str) -> dict[tuple[int, int], int]:
+    """Recompute {(scene_idx, frame_idx): frames.id} from the DB.
+
+    Used as a resume-from-crash fallback in the EMBED persist branch when
+    the in-memory ``__frame_id_map`` stash from FRAME_SAMPLE has been lost
+    (e.g. worker restart between FRAME_SAMPLE and EMBED).
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT f.id, s.scene_idx, f.frame_idx
+              FROM frames f
+              JOIN scenes s ON s.id = f.scene_id
+             WHERE f.asset_id = ?
+            """,
+            (asset_id,),
+        ).fetchall()
+    return {
+        (int(r["scene_idx"]), int(r["frame_idx"])): int(r["id"])
+        for r in rows
+    }
 
 
 def _update_frame_ocr(*, asset_id: str, frames: list[dict]) -> None:
@@ -463,13 +488,24 @@ async def run_pipeline(job_id: str) -> None:
                 )
                 _rewrite_fts_scenes(asset_id=state["asset_id"])
             elif stage is Stage.EMBED and state.get("asset_id"):
-                frame_id_map = {
-                    tuple(int(x) for x in k.split(":")): v
-                    for k, v in state.get("__frame_id_map", {}).items()
-                }
-                scene_id_by_idx = {
-                    int(k): v for k, v in state.get("__scene_id_by_idx", {}).items()
-                }
+                raw_frame_stash = state.get("__frame_id_map") or {}
+                if raw_frame_stash:
+                    frame_id_map = {
+                        tuple(int(x) for x in k.split(":")): v
+                        for k, v in raw_frame_stash.items()
+                    }
+                else:
+                    # Resume-from-crash fallback: stash was lost because
+                    # FRAME_SAMPLE committed but the worker restarted before
+                    # EMBED ran. Recompute from the frames/scenes tables.
+                    frame_id_map = _frame_id_map_from_db(state["asset_id"])
+                raw_scene_stash = state.get("__scene_id_by_idx") or {}
+                if raw_scene_stash:
+                    scene_id_by_idx = {
+                        int(k): v for k, v in raw_scene_stash.items()
+                    }
+                else:
+                    scene_id_by_idx = _scene_id_by_idx(state["asset_id"])
                 segment_id_by_idx = _segment_id_by_idx(state["asset_id"])
                 _persist_vectors(
                     frame_id_map=frame_id_map,
