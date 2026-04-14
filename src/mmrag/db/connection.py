@@ -5,6 +5,32 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 
 from mmrag.config import get_settings
+from mmrag.logging import get_logger
+
+log = get_logger("db.connection")
+
+_VEC_LOAD_WARNED = False
+
+
+def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
+    """Load the sqlite-vec extension on the given connection when available.
+
+    Degrades silently (one warning per process) if the m3-visual extra is
+    not installed, so core-only installs can still run MCP tools in FTS mode.
+    """
+    global _VEC_LOAD_WARNED
+    try:
+        import sqlite_vec
+    except ImportError:
+        if not _VEC_LOAD_WARNED:
+            log.warning("sqlite_vec.unavailable", hint="install with: make sync-m3")
+            _VEC_LOAD_WARNED = True
+        return
+    conn.enable_load_extension(True)
+    try:
+        sqlite_vec.load(conn)
+    finally:
+        conn.enable_load_extension(False)
 
 
 def _open(db_path: str) -> sqlite3.Connection:
@@ -18,6 +44,7 @@ def _open(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
+    _load_sqlite_vec(conn)
     return conn
 
 
