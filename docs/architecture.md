@@ -2,7 +2,8 @@
 
 This is a slimmed-down in-repo copy of the design that lives in
 `~/.claude/plans/staged-strolling-gray.md`. The plan file is the
-canonical source for the brainstorm rationale; this file is what
+canonical source for the M1–M2 brainstorm rationale; `docs/pmf-rethink.md`
+is the canonical source for the M3–M7 scope; this file is what
 contributors read.
 
 ## Goal
@@ -11,12 +12,15 @@ Edge-optimized multimodal ingestion tool exposed as an MCP server.
 Ingests video (primary), audio, and image content from public URLs
 (YouTube, Shorts, TikTok, Reels) and local files; produces transcripts,
 scene maps, OCR, and embeddings into a local SQLite + sqlite-vec store;
-and answers natural-language questions by retrieving top-k evidence and
-handing it to Ollama-hosted Gemma 4 (`gemma4:e4b` primary, `gemma4:e2b`
-fallback).
+and returns rich **evidence packs** over retrieved top-k results so the
+calling agent can reason with its own LLM. Bundled reasoning (Gemma 4
+via Ollama) is an optional `[reasoning]` extra — core install has no
+Ollama dependency. See `docs/pmf-rethink.md` for the thesis.
 
-Mac is the dev home. Pi is the deployment floor. Stack choices are
-made so "deploy to Pi" is a config change, not a rewrite.
+Mac is the dev home. Pi / homelab-host is the deployment floor — one
+shared tailnet-hosted instance, streamable-HTTP MCP transport, all edge
+agents hit the same index. Stack choices are made so "deploy to Pi" is
+a config change, not a rewrite.
 
 ## Stack (MIT/Apache/BSD-clean)
 
@@ -34,15 +38,20 @@ made so "deploy to Pi" is a config change, not a rewrite.
 | OCR | Tesseract + pytesseract *(M3)* | Apache-2 |
 | Vector store | sqlite-vec *(M3)* | Apache-2 |
 | Relational | SQLite (WAL) | Public domain |
-| Reasoning | Ollama (`gemma4:e4b` / `:e2b`, **user-supplied**) *(M4)* | Gemma terms / Apache-2 |
+| Reasoning | Ollama (`gemma4:e4b` / `:e2b`, **user-supplied**, optional `[reasoning]` extra) *(M4)* | Gemma terms / Apache-2 |
 | Settings | pydantic-settings | MIT |
 | Logging | structlog | Apache-2/MIT |
 
-Everything in v0.1.0 is MIT/Apache/BSD/PD. Two non-Python pieces are
-required and **not bundled**: `ffmpeg` (install via package manager) and
-`Ollama` + Gemma weights (install Ollama, pull `gemma4:e4b` and
-`gemma4:e2b` yourself; mmrag merely makes HTTP calls to your local
-Ollama process).
+Everything in v0.1.0 is MIT/Apache/BSD/PD. One non-Python piece is
+required and **not bundled**: `ffmpeg` (install via package manager).
+
+Ollama + Gemma weights are **optional** and live behind the `[reasoning]`
+pyproject extra. Core install has no Ollama hard dependency — `ask`
+returns evidence packs by default, and only calls the model when
+`synthesize=True` AND the `[reasoning]` extra is installed. Install
+with `uv pip install -e .[reasoning]` and pull `gemma4:e4b`/`gemma4:e2b`
+on your Ollama host yourself; mmrag then makes HTTP calls to the local
+Ollama process.
 
 ## Components
 
@@ -124,19 +133,64 @@ own numbered SQL file under `src/mmrag/db/sql/`.
 
 ```
 ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
-ask(question, asset_id=None, time_range=None, top_k=5, model="gemma4:e4b")
+ask(question, asset_id=None, time_range=None, top_k=5,
+    synthesize=False, model=None)                              # post-M4
 search(query, asset_id=None, top_k=10, mode="hybrid"|"vector"|"fts")
 status(job_id)
 ```
 
+**Evidence-first contract (post-M4).** Both `ask` and `search` return
+rich `Evidence` objects: `{asset_id, scene_id, start_s, end_s, summary,
+ocr_snippet, transcript_snippet}`. `ask` additionally returns an
+optional `answer: str | None` and a `confidence` field — `answer` is
+only populated when the caller passes `synthesize=True` AND the
+`[reasoning]` extra is installed. This keeps the core install lean
+(no Ollama hard dep) and matches the PMF thesis that edge agents
+([agent], [agent], Kit, Claude Code) already have their own LLMs and prefer
+retrieved evidence packs to yet another inference layer.
+
 REST-only (not exposed to MCP clients): `reindex`, `retry`,
 `delete_asset`, `bulk_import`. Admin moves.
 
+## Transport (post-M5)
+
+- **Stdio MCP** (M1–M4): `mmrag serve-mcp`, for local subprocess
+  Claude Code clients on the dev Mac.
+- **Streamable-HTTP MCP** (M5+): tailnet-hosted endpoint, shared
+  bearer token in env (`MMRAG_MCP_TOKEN`), Tailscale-only bind.
+  Published `.well-known/mcp-resource` for client discovery. This is
+  how [agent], [agent], Kit, and Claude Code all query the same MM-RAG
+  instance hosted on homelab-host.
+- **REST** (`serve-api`): admin + debug surface, not the agent path.
+
+**v1 is single-tenant.** No caller IDs, no per-caller quotas, no
+asset-visibility scoping. Auth is one shared bearer token per host.
+Multi-tenant isolation is post-v1 and only lands if a concrete caller
+needs it.
+
 ## Roadmap
 
-See `bd ready` for current open issues. M1 (this version) ships fetch
-+ normalize + the schemas, handlers, and surfaces around them. M2
-brings speech (scene detect + transcribe + FTS5). M3 brings vision
-(frame sampling + OCR + SigLIP embeddings + sqlite-vec). M4 brings
-reasoning (scene summaries + ask evidence assembly + Gemma 4
-inference). M5 brings the SBT integration. M6 brings the Pi deploy.
+See `bd ready` for current open issues and `docs/pmf-rethink.md` for
+the full rationale behind the current milestone ordering.
+
+- **M1** ships fetch + normalize + the schemas, handlers, and surfaces
+  around them.
+- **M2** brings speech (scene detect + transcribe + FTS5).
+- **M3** brings vision (frame sampling + OCR + SigLIP embeddings +
+  sqlite-vec).
+- **M4** brings evidence packs: rescoped from the original "Reasoning
+  pipeline" to make `ask` evidence-only by default (`answer: str |
+  None`, new `synthesize: bool = False` flag), enrich `search` to
+  return full `Evidence` objects, and move `OllamaProvider` +
+  answer-synthesis into an optional `[reasoning]` pyproject extra.
+  Stage 8 `summarize` stays as a deterministic indexing artifact
+  (per-scene short-text distillation stored in `scenes.summary`).
+- **M5** brings streamable-HTTP MCP transport for tailnet-hosted
+  deployment. Promoted from P3 because the PMF thesis *is* shared
+  index over MCP, and stdio-only silos contradict that.
+- **M6** brings the Pi / homelab-host deploy. Lighter footprint than the
+  original scope (no bundled Gemma 4, no Ollama hard dep). Blocks on
+  M5 because a Pi that only speaks stdio is a single-agent silo.
+- **M7** brings the SBT integration. Demoted from P2 because it's a
+  reference consumer, not a core PMF feature.
+- **post-v1**: bundled reasoning `[reasoning]` extra (`MM-RAG-rif`).
