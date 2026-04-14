@@ -66,7 +66,71 @@ async def test_frame_sample_long_scene_strides_every_2s(tmp_path):
     )
     frames = patch["frames"]
     # 1 midpoint (7.5) + strides starting at start_s+1.0 with 2s step up to
-    # end_s-0.5 => 1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0 (7 strides)
+    # end_s-0.5 => [1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0] (7 strides; 7.5
+    # midpoint does NOT collide with any integer stride so no dedup applies).
     assert len(frames) == 8
-    # Index 0 is the midpoint (emitted first).
     assert frames[0]["t_s"] == pytest.approx(7.5, abs=0.1)
+    stride_ts = [f["t_s"] for f in frames[1:]]
+    assert stride_ts == pytest.approx([1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0])
+
+
+async def test_frame_sample_dedupes_midpoint_stride_collision(tmp_path):
+    """Even-duration long scene: midpoint coincides with a stride sample.
+
+    A 14-second scene has midpoint 7.0 which would also be emitted as a
+    stride sample (start_s=0 + 1.0, 3.0, 5.0, 7.0, ...). The stage must
+    deduplicate to a single 7.0 entry so downstream frame_idx values don't
+    point at identical pixel data.
+    """
+    video = tmp_path / "testsrc_14.mp4"
+    _make_test_video(video, duration=14)
+    scenes = [{"scene_idx": 0, "start_s": 0.0, "end_s": 14.0}]
+    patch = await frame_sample(
+        mezzanine_path=str(video),
+        scenes=scenes,
+        assets_dir=tmp_path,
+        content_hash="14hash",
+        mode="standard",
+    )
+    frames = patch["frames"]
+    t_values = [f["t_s"] for f in frames]
+    # midpoint 7.0 + strides 1.0, 3.0, 5.0, 9.0, 11.0, 13.0 (7.0 deduped)
+    assert len(set(t_values)) == len(t_values), f"duplicate t_s: {t_values}"
+    assert 7.0 in t_values
+    assert t_values.count(7.0) == 1
+    assert len(frames) == 7  # not 8
+
+
+async def test_frame_sample_none_mezzanine_returns_empty(tmp_path):
+    patch = await frame_sample(
+        mezzanine_path=None,
+        scenes=[{"scene_idx": 0, "start_s": 0.0, "end_s": 1.0}],
+        assets_dir=tmp_path,
+        content_hash="h",
+        mode="standard",
+    )
+    assert patch == {"frames": []}
+
+
+async def test_frame_sample_empty_scenes_returns_empty(tmp_path):
+    video = tmp_path / "testsrc.mp4"
+    _make_test_video(video, duration=2)
+    patch = await frame_sample(
+        mezzanine_path=str(video),
+        scenes=[],
+        assets_dir=tmp_path,
+        content_hash="h",
+        mode="standard",
+    )
+    assert patch == {"frames": []}
+
+
+async def test_frame_sample_missing_mezzanine_file_returns_empty(tmp_path):
+    patch = await frame_sample(
+        mezzanine_path=str(tmp_path / "does_not_exist.mp4"),
+        scenes=[{"scene_idx": 0, "start_s": 0.0, "end_s": 1.0}],
+        assets_dir=tmp_path,
+        content_hash="h",
+        mode="standard",
+    )
+    assert patch == {"frames": []}
