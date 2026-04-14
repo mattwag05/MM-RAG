@@ -43,6 +43,9 @@ class _StreamHit:
     # For vec hits: None (will be filled from scenes table).
     start_s: float | None = field(default=None)
     end_s: float | None = field(default=None)
+    # Source tag — used by FTS dedup to prefer fts_transcript over fts_scenes
+    # when both match the same scene_id (fts_transcript has segment timestamps).
+    source: str = field(default="")
 
 
 async def _encode_query_text(query: str) -> list[float]:
@@ -89,6 +92,7 @@ def _fts_transcript_stream(query: str, asset_id: str | None) -> list[_StreamHit]
             snippet=r["snippet"],
             start_s=float(r["start_s"]),
             end_s=float(r["end_s"]),
+            source="fts_transcript",
         )
         for r in rows
         if r["scene_id"] is not None
@@ -124,6 +128,7 @@ def _fts_scenes_stream(query: str, asset_id: str | None) -> list[_StreamHit]:
             snippet=r["snippet"],
             start_s=float(r["start_s"]),
             end_s=float(r["end_s"]),
+            source="fts_scenes",
         )
         for r in rows
     ]
@@ -155,6 +160,7 @@ def _vec_frames_stream(qvec: list[float], asset_id: str | None) -> list[_StreamH
             # for unit vectors, cosine_sim = 1 - distance^2 / 2.
             score=1.0 - (float(r["distance"]) ** 2) / 2.0,
             snippet=None,
+            source="vec_frames",
         )
         for r in rows
     ]
@@ -191,6 +197,7 @@ def _vec_transcript_stream(qvec: list[float], asset_id: str | None) -> list[_Str
                 scene_id=int(r["scene_id"]),
                 score=1.0 - (float(r["distance"]) ** 2) / 2.0,
                 snippet=snippet,
+                source="vec_transcript",
             )
         )
     return out
@@ -222,6 +229,10 @@ def _rrf_fuse(
         for rank, hit in enumerate(hits):
             fused[hit.scene_id] = fused.get(hit.scene_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
             cur = snippets.get(hit.scene_id)
+            # Snippet is picked by "highest raw score among contributing streams."
+            # BM25 scores (negated, so positive) and cosine scores (0.0–1.0) live
+            # on different scales; the comparison is apples-to-oranges but is a
+            # reasonable heuristic: snippets are advisory output, not the ranking.
             if hit.snippet and (cur is None or hit.score > cur[0]):
                 snippets[hit.scene_id] = (hit.score, hit.snippet)
     ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
@@ -248,12 +259,26 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
     if inp.mode == "fts":
         # FTS-only: return segment-level timestamps for precision.
         # Flatten streams (fts_transcript first, then fts_scenes), dedup by
-        # scene_id keeping best score, sort, truncate.
+        # scene_id. When both streams match the same scene, always prefer the
+        # fts_transcript hit — it carries segment-level start_s/end_s. The
+        # fts_scenes hit has only scene-level boundaries and would lose
+        # precision. Score for ranking uses whichever hit wins the source
+        # preference (or the higher score when both have the same source).
         flat: dict[int, _StreamHit] = {}
         for hits in streams:
             for hit in hits:
                 cur = flat.get(hit.scene_id)
-                if cur is None or hit.score > cur.score:
+                if cur is None:
+                    flat[hit.scene_id] = hit
+                    continue
+                # Prefer fts_transcript (has segment-level start_s/end_s).
+                if cur.source == "fts_transcript" and hit.source != "fts_transcript":
+                    continue  # keep the transcript-sourced hit
+                if hit.source == "fts_transcript" and cur.source != "fts_transcript":
+                    flat[hit.scene_id] = hit  # replace with transcript-sourced
+                    continue
+                # Same source — keep the higher score.
+                if hit.score > cur.score:
                     flat[hit.scene_id] = hit
         ordered = sorted(flat.values(), key=lambda h: h.score, reverse=True)[: inp.top_k]
         scene_meta = _scene_timing([h.scene_id for h in ordered])
