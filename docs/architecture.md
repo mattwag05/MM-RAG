@@ -34,9 +34,9 @@ a config change, not a rewrite.
 | Media transform | ffmpeg (system binary, **not bundled**) | LGPL |
 | ASR | faster-whisper *(M2)* | MIT |
 | Scene detect | PySceneDetect *(M2)* | BSD-3 |
-| Embeddings | open_clip SigLIP *(M3)* | MIT |
-| OCR | Tesseract + pytesseract *(M3)* | Apache-2 |
-| Vector store | sqlite-vec *(M3)* | Apache-2 |
+| Embeddings | open_clip SigLIP | MIT |
+| OCR | Tesseract + pytesseract | Apache-2 |
+| Vector store | sqlite-vec | Apache-2 |
 | Relational | SQLite (WAL) | Public domain |
 | Reasoning | Ollama (`gemma4:e4b` / `:e2b`, **user-supplied**, optional `[reasoning]` extra) *(M4)* | Gemma terms / Apache-2 |
 | Settings | pydantic-settings | MIT |
@@ -176,8 +176,16 @@ the full rationale behind the current milestone ordering.
 - **M1** ships fetch + normalize + the schemas, handlers, and surfaces
   around them.
 - **M2** brings speech (scene detect + transcribe + FTS5).
-- **M3** brings vision (frame sampling + OCR + SigLIP embeddings +
-  sqlite-vec).
+- **M3** **(shipped)** brings vision: frame sampling at scene midpoints
+  (plus 2s stride on scenes >10s, with midpoint/stride collision dedup),
+  Tesseract OCR (PSM 6, 10s per-frame timeout), SigLIP-base-patch16-256
+  image+text embeddings (768-d, L2-normalized, CPU inference via open_clip),
+  three sqlite-vec virtual tables (`vec_frames`, `vec_scenes`, `vec_transcript`),
+  a plain FTS5 `fts_scenes` index maintained by application code, and
+  hybrid RRF retrieval across FTS transcript / FTS scenes / vector frames /
+  vector transcript. Renamed `shots` → `scenes` across the schema.
+  Follow-up: `MM-RAG-687` (sqlite-vec k= pre-filter bug for multi-asset
+  indexes) and `MM-RAG-bbl` (natural-image acceptance fixture).
 - **M4** brings evidence packs: rescoped from the original "Reasoning
   pipeline" to make `ask` evidence-only by default (`answer: str |
   None`, new `synthesize: bool = False` flag), enrich `search` to
