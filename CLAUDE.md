@@ -1,7 +1,7 @@
 # CLAUDE.md — MM-RAG
 
 > Edge-optimized multimodal ingestion tool exposed as an MCP server.
-> Python 3.13, MIT-licensed, currently at v0.1.0 (Milestone 1 walking skeleton).
+> Python 3.13, MIT-licensed, currently at v0.1.0 (M3 visual pipeline shipped).
 
 ## What it is
 
@@ -112,7 +112,7 @@ make init-db                              # create the SQLite DB at MMRAG_DATA_D
 make serve-api                            # FastAPI on :8765
 make serve-mcp                            # FastMCP over stdio
 make worker                               # drain the job queue
-make test                                 # full test suite (40 tests)
+make test                                 # full test suite (61 tests)
 ```
 
 ## Where things live
@@ -123,7 +123,7 @@ make test                                 # full test suite (40 tests)
 | REST mirror | `src/mmrag/api.py` |
 | Tool handlers (shared by MCP + REST) | `src/mmrag/handlers/` |
 | Pipeline runner + stages | `src/mmrag/pipeline/runner.py`, `src/mmrag/pipeline/stages/` |
-| DB schema | `src/mmrag/db/sql/0001_m1_init.sql`, `0002_m2_speech.sql` |
+| DB schema | `src/mmrag/db/sql/0001_m1_init.sql`, `0002_m2_speech.sql`, `0003_m3_visual.sql` |
 | Pydantic I/O models | `src/mmrag/models/mcp_io.py` |
 | Settings (env-var driven) | `src/mmrag/config.py` |
 | Tests | `tests/test_contract.py`, `tests/test_pipeline_*.py` |
@@ -142,7 +142,7 @@ Identity flows through `content_hash` (SHA-256 of the canonical mezzanine
 file). Re-ingesting the same video under a different URL is a no-op.
 
 Retrieval comes first, reasoning second: the index is built deterministically
-(faster-whisper for transcription, PySceneDetect for shots, SigLIP for
+(faster-whisper for transcription, PySceneDetect for scenes, SigLIP for
 embeddings, Tesseract for OCR), and Gemma 4 only ever sees the top-k
 retrieved evidence — never raw frames or full transcripts. This is the only
 way the 32K context window on `gemma4:e4b` doesn't bite us.
