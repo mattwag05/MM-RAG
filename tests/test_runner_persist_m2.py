@@ -1,4 +1,4 @@
-"""Runner persistence for M2: shots + transcript_segments after each stage."""
+"""Runner persistence for M2: scenes + transcript_segments after each stage."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from mmrag.db.connection import connect
-from mmrag.pipeline.runner import _persist_segments, _persist_shots
+from mmrag.pipeline.runner import _persist_segments, _persist_scenes
 
 
 def _seed_asset(asset_id: str, content_hash: str) -> None:
@@ -18,47 +18,47 @@ def _seed_asset(asset_id: str, content_hash: str) -> None:
         )
 
 
-def test_persist_shots_writes_rows(isolated_data_dir: Path) -> None:
+def test_persist_scenes_writes_rows(isolated_data_dir: Path) -> None:
     _seed_asset("a1", "h1")
-    _persist_shots(
+    _persist_scenes(
         asset_id="a1",
-        shots=[
-            {"shot_idx": 0, "start_s": 0.0, "end_s": 2.0},
-            {"shot_idx": 1, "start_s": 2.0, "end_s": 4.0},
+        scenes=[
+            {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0},
+            {"scene_idx": 1, "start_s": 2.0, "end_s": 4.0},
         ],
     )
     with connect() as conn:
         rows = conn.execute(
-            "SELECT shot_idx, start_s, end_s FROM shots "
-            "WHERE asset_id = 'a1' ORDER BY shot_idx"
+            "SELECT scene_idx, start_s, end_s FROM scenes "
+            "WHERE asset_id = 'a1' ORDER BY scene_idx"
         ).fetchall()
     assert len(rows) == 2
-    assert rows[0]["shot_idx"] == 0
+    assert rows[0]["scene_idx"] == 0
     assert rows[0]["end_s"] == pytest.approx(2.0)
-    assert rows[1]["shot_idx"] == 1
+    assert rows[1]["scene_idx"] == 1
 
 
-def test_persist_shots_is_idempotent(isolated_data_dir: Path) -> None:
+def test_persist_scenes_is_idempotent(isolated_data_dir: Path) -> None:
     """Re-running the stage on the same asset must not produce duplicates."""
     _seed_asset("a2", "h2")
-    shots = [
-        {"shot_idx": 0, "start_s": 0.0, "end_s": 2.0},
-        {"shot_idx": 1, "start_s": 2.0, "end_s": 4.0},
+    scenes = [
+        {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0},
+        {"scene_idx": 1, "start_s": 2.0, "end_s": 4.0},
     ]
-    _persist_shots(asset_id="a2", shots=shots)
-    _persist_shots(asset_id="a2", shots=shots)
+    _persist_scenes(asset_id="a2", scenes=scenes)
+    _persist_scenes(asset_id="a2", scenes=scenes)
     with connect() as conn:
         count = conn.execute(
-            "SELECT COUNT(*) AS c FROM shots WHERE asset_id = 'a2'"
+            "SELECT COUNT(*) AS c FROM scenes WHERE asset_id = 'a2'"
         ).fetchone()["c"]
     assert count == 2
 
 
 def test_persist_segments_writes_rows_and_fts(isolated_data_dir: Path) -> None:
     _seed_asset("a3", "h3")
-    _persist_shots(
+    _persist_scenes(
         asset_id="a3",
-        shots=[{"shot_idx": 0, "start_s": 0.0, "end_s": 3.0}],
+        scenes=[{"scene_idx": 0, "start_s": 0.0, "end_s": 3.0}],
     )
     _persist_segments(
         asset_id="a3",
@@ -68,26 +68,26 @@ def test_persist_segments_writes_rows_and_fts(isolated_data_dir: Path) -> None:
                 "start_s": 0.0,
                 "end_s": 1.5,
                 "text": "hello mmrag world",
-                "shot_idx": 0,
+                "scene_idx": 0,
             },
             {
                 "seg_idx": 1,
                 "start_s": 1.5,
                 "end_s": 3.0,
                 "text": "testing one two three",
-                "shot_idx": 0,
+                "scene_idx": 0,
             },
         ],
     )
     with connect() as conn:
         rows = conn.execute(
-            "SELECT seg_idx, text, shot_id FROM transcript_segments "
+            "SELECT seg_idx, text, scene_id FROM transcript_segments "
             "WHERE asset_id = 'a3' ORDER BY seg_idx"
         ).fetchall()
     assert [r["text"] for r in rows] == ["hello mmrag world", "testing one two three"]
-    # shot_id should be the INTEGER row id of the shots row, not the shot_idx.
-    assert rows[0]["shot_id"] is not None
-    assert rows[1]["shot_id"] is not None
+    # scene_id should be the INTEGER row id of the scenes row, not the scene_idx.
+    assert rows[0]["scene_id"] is not None
+    assert rows[1]["scene_id"] is not None
 
     # And the text should be BM25-searchable via the FTS index.
     with connect() as conn:
@@ -102,9 +102,9 @@ def test_persist_segments_writes_rows_and_fts(isolated_data_dir: Path) -> None:
 
 def test_persist_segments_is_idempotent(isolated_data_dir: Path) -> None:
     _seed_asset("a4", "h4")
-    _persist_shots(
+    _persist_scenes(
         asset_id="a4",
-        shots=[{"shot_idx": 0, "start_s": 0.0, "end_s": 2.0}],
+        scenes=[{"scene_idx": 0, "start_s": 0.0, "end_s": 2.0}],
     )
     segments = [
         {
@@ -112,7 +112,7 @@ def test_persist_segments_is_idempotent(isolated_data_dir: Path) -> None:
             "start_s": 0.0,
             "end_s": 1.0,
             "text": "unique_token_abcd",
-            "shot_idx": 0,
+            "scene_idx": 0,
         },
     ]
     _persist_segments(asset_id="a4", segments=segments)

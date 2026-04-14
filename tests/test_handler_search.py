@@ -9,7 +9,7 @@ import pytest
 from mmrag.db.connection import connect
 from mmrag.handlers.search import handle_search
 from mmrag.models.mcp_io import SearchInput
-from mmrag.pipeline.runner import _persist_segments, _persist_shots
+from mmrag.pipeline.runner import _persist_segments, _persist_scenes
 
 
 def _seed_asset_with_segments(asset_id: str, content_hash: str) -> None:
@@ -18,11 +18,11 @@ def _seed_asset_with_segments(asset_id: str, content_hash: str) -> None:
             "INSERT INTO assets (id, content_hash, source_kind) VALUES (?, ?, 'file')",
             (asset_id, content_hash),
         )
-    _persist_shots(
+    _persist_scenes(
         asset_id=asset_id,
-        shots=[
-            {"shot_idx": 0, "start_s": 0.0, "end_s": 2.0},
-            {"shot_idx": 1, "start_s": 2.0, "end_s": 4.0},
+        scenes=[
+            {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0},
+            {"scene_idx": 1, "start_s": 2.0, "end_s": 4.0},
         ],
     )
     _persist_segments(
@@ -33,21 +33,21 @@ def _seed_asset_with_segments(asset_id: str, content_hash: str) -> None:
                 "start_s": 0.0,
                 "end_s": 1.5,
                 "text": "the quick brown fox jumps over the lazy dog",
-                "shot_idx": 0,
+                "scene_idx": 0,
             },
             {
                 "seg_idx": 1,
                 "start_s": 1.6,
                 "end_s": 3.0,
                 "text": "multimodal retrieval is fun",
-                "shot_idx": 0,
+                "scene_idx": 0,
             },
             {
                 "seg_idx": 2,
                 "start_s": 3.1,
                 "end_s": 4.0,
                 "text": "gemma four answers questions",
-                "shot_idx": 1,
+                "scene_idx": 1,
             },
         ],
     )

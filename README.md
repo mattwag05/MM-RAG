@@ -11,11 +11,10 @@ AI agent can actually reason about. It's deliberately small, MIT-licensed, and
 biased toward retrieval over brute-force frame inference — so the "smart"
 multimodal model only sees the few seconds that actually matter.
 
-> **Status: v0.1.0 — Milestone 1 walking skeleton.**
-> Stages 1–2 (URL/file fetch + ffmpeg normalize) are wired end-to-end.
-> Stages 3–8 (scene detection, transcription, frame sampling, OCR, embeddings,
-> scene summaries) are scaffolded as stubs and ship in milestones M2–M4. See
-> the [roadmap](#roadmap).
+> **Status: v0.1.0 (M3 visual pipeline shipped).**
+> Stages 1–7 wired end-to-end: fetch → normalize → scene_detect → transcribe
+> → frame_sample → ocr → embed. Stage 8 (summarize) is still a stub and ships
+> in M4. See the [roadmap](#roadmap).
 
 ---
 
@@ -43,7 +42,7 @@ which clip in your library is the one where the onboarding modal appears.
 
 ---
 
-## What works today (M1)
+## What works today (M3)
 
 - ✅ `ingest(local_file)` — sync, full pipeline through ffmpeg normalize, asset row populated with `content_hash`, `duration_s`, `fps`, `width`, `height`, `mezzanine_path`, `audio_path`
 - ✅ `ingest(url)` via `yt-dlp` — best-effort URL fetch (any `yt-dlp`-supported source)
@@ -60,7 +59,9 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Pydantic schema contract tests for every MCP tool's input/output
 - ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
 - 🧱 `ask(...)` returns a valid-shape placeholder — real evidence assembly + Gemma inference lands in M4
-- 🧱 `search(...)` returns an empty hit list — FTS lands in M2, vector + hybrid in M3
+- ✅ `search(...)` supports three modes: `fts` (BM25 over transcript + OCR),
+  `vector` (SigLIP cosine over frame/transcript embeddings), and `hybrid`
+  (RRF fusion across all four streams).
 
 ---
 
@@ -68,10 +69,13 @@ which clip in your library is the one where the onboarding modal appears.
 
 ```bash
 brew install ffmpeg                   # required system binary (LGPL, not bundled)
+brew install tesseract                # required for OCR stage (Apache-2, not bundled)
 
 git clone <this repo>
 cd MM-RAG
 make sync-dev                         # installs Python 3.13, runtime + dev deps into .venv.nosync/
+# For the M3 visual pipeline (frame sampling, OCR, SigLIP embeddings):
+make sync-m3                          # adds torch, open-clip-torch, pytesseract, sqlite-vec, etc.
 make init-db                          # creates ~/.local/share/mmrag/mmrag.db
 make serve-api &                      # FastAPI REST on http://127.0.0.1:8765
 make worker &                         # drains the job queue
@@ -239,12 +243,16 @@ public domain. No GPL/AGPL anywhere in the runtime tree.
 | `uvicorn`       | BSD-3          | ASGI server                     |
 | `setuptools`    | MIT            | build backend                   |
 
-Two non-Python pieces are required and **not bundled**:
+Three non-Python pieces are required and **not bundled**:
 
 1. **`ffmpeg`** (LGPL) — install via `brew install ffmpeg` /
    `apt install ffmpeg`. LGPL is fine for an MIT Python project as long as
    we don't statically link or redistribute it, and we don't.
-2. **Ollama + Gemma 4 weights.** Install Ollama from
+2. **`tesseract`** (Apache-2) — install via `brew install tesseract` /
+   `apt install tesseract-ocr`. Required for the M3 OCR stage. The Python
+   `pytesseract` binding (pulled in by `make sync-m3`) calls this system binary;
+   ingest fails fast with a clear error if it's missing.
+3. **Ollama + Gemma 4 weights.** Install Ollama from
    <https://ollama.com/download> and run `ollama pull gemma4:e4b` /
    `ollama pull gemma4:e2b`. Gemma weights are released under Google's
    Gemma terms (not MIT). `mmrag` does not bundle, redistribute, or
@@ -298,8 +306,8 @@ independently testable; the project pauses for review between them.
 | Milestone | Status | Scope |
 |-----------|:------:|-------|
 | **M1** | ✅ | Walking skeleton: project layout, `uv` + Python 3.13, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
-| M2 | 🧱 | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
-| M3 | 🧱 | Frame sampling + Tesseract OCR + SigLIP image+text embeddings + sqlite-vec hybrid retrieval (RRF) |
+| **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
+| **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | M4 | 🧱 | Per-scene summaries via `gemma4:e2b` + `ask` evidence-pack assembly + final answer via `gemma4:e4b` with `e2b` fallback |
 | M5 | 🧱 | Social Bookmarks Triage REST integration (`push_to_sbt=true`, idempotent `postId` hash, Prisma migration on the SBT side adding `transcriptText` to its FTS) |
 | M6 | 🧱 | Raspberry Pi deploy (multi-arch Docker, FIFO+systemd harness, ARM-tuned defaults) |
@@ -338,7 +346,9 @@ MM-RAG/
     │   ├── connection.py      # WAL pragma, transaction helpers
     │   ├── migrations.py      # idempotent migration runner
     │   └── sql/
-    │       └── 0001_m1_init.sql
+    │       ├── 0001_m1_init.sql
+    │       ├── 0002_m2_speech.sql
+    │       └── 0003_m3_visual.sql
     ├── models/
     │   ├── asset.py
     │   ├── job.py             # JobStatus, Stage enums
@@ -354,11 +364,11 @@ MM-RAG/
     │   └── stages/
     │       ├── fetch.py       # M1 — yt-dlp / local
     │       ├── normalize.py   # M1 — ffmpeg mezzanine + 16k mono wav
-    │       ├── scene_detect.py    # stub → M2
-    │       ├── transcribe.py      # stub → M2
-    │       ├── frame_sample.py    # stub → M3
-    │       ├── ocr.py             # stub → M3
-    │       ├── embed.py           # stub → M3
+    │       ├── scene_detect.py    # M2 — PySceneDetect ContentDetector
+    │       ├── transcribe.py      # M2 — faster-whisper int8 + word timestamps
+    │       ├── frame_sample.py    # M3 — scene midpoints + stride sampling
+    │       ├── ocr.py             # M3 — Tesseract PSM 6
+    │       ├── embed.py           # M3 — SigLIP-base-patch16-256 (768-d)
     │       └── summarize.py       # stub → M4
     └── providers/
         ├── base.py            # ModelProvider ABC

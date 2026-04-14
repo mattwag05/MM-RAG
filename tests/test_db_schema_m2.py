@@ -1,4 +1,4 @@
-"""M2 schema: shots + transcript_segments + fts_transcript."""
+"""M2 schema: scenes + transcript_segments + fts_transcript."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ def _column_names(conn, table: str) -> set[str]:
     return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def test_shots_table_has_expected_columns(isolated_data_dir: Path) -> None:
+def test_scenes_table_has_expected_columns(isolated_data_dir: Path) -> None:
     with connect() as conn:
-        cols = _column_names(conn, "shots")
-    assert {"id", "asset_id", "shot_idx", "start_s", "end_s"} <= cols
+        cols = _column_names(conn, "scenes")
+    assert {"id", "asset_id", "scene_idx", "start_s", "end_s"} <= cols
 
 
 def test_transcript_segments_table_has_expected_columns(isolated_data_dir: Path) -> None:
@@ -23,7 +23,7 @@ def test_transcript_segments_table_has_expected_columns(isolated_data_dir: Path)
     assert {
         "id",
         "asset_id",
-        "shot_id",
+        "scene_id",
         "seg_idx",
         "start_s",
         "end_s",
@@ -50,7 +50,7 @@ def test_fts_trigger_mirrors_segment_text(isolated_data_dir: Path) -> None:
         conn.execute(
             """
             INSERT INTO transcript_segments
-                (asset_id, shot_id, seg_idx, start_s, end_s, text)
+                (asset_id, scene_id, seg_idx, start_s, end_s, text)
             VALUES ('a1', NULL, 0, 0.0, 1.0, 'hello mmrag world')
             """
         )
@@ -76,7 +76,7 @@ def test_fts_trigger_updates_on_delete(isolated_data_dir: Path) -> None:
         conn.execute(
             """
             INSERT INTO transcript_segments
-                (asset_id, shot_id, seg_idx, start_s, end_s, text)
+                (asset_id, scene_id, seg_idx, start_s, end_s, text)
             VALUES ('a1', NULL, 0, 0.0, 1.0, 'unique_token_xyz')
             """
         )

@@ -5,6 +5,49 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 
 from mmrag.config import get_settings
+from mmrag.logging import get_logger
+
+log = get_logger("db.connection")
+
+# Not lock-guarded: worst case is two warnings emitted at startup.
+# The worker currently runs single-async-loop; acceptable for now.
+_VEC_LOAD_WARNED = False
+_VEC_EXT_DISABLED_WARNED = False
+
+
+def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
+    """Load the sqlite-vec extension on the given connection when available.
+
+    Degrades silently (one warning per process) in two scenarios:
+    - the ``m3-visual`` extra isn't installed (``ImportError`` on ``sqlite_vec``)
+    - the running Python was built without loadable-extension support
+      (``AttributeError`` on ``conn.enable_load_extension``)
+
+    Either way, core-only installs and stripped-down platforms can still run
+    MCP tools in FTS-only mode without taking down every caller of connect().
+    """
+    global _VEC_LOAD_WARNED, _VEC_EXT_DISABLED_WARNED
+    try:
+        import sqlite_vec
+    except ImportError:
+        if not _VEC_LOAD_WARNED:
+            log.warning("sqlite_vec.unavailable", hint="install with: make sync-m3")
+            _VEC_LOAD_WARNED = True
+        return
+    try:
+        conn.enable_load_extension(True)
+    except AttributeError:
+        if not _VEC_EXT_DISABLED_WARNED:
+            log.warning(
+                "sqlite_vec.load_extension_disabled",
+                hint="Python built without loadable-extension support",
+            )
+            _VEC_EXT_DISABLED_WARNED = True
+        return
+    try:
+        sqlite_vec.load(conn)
+    finally:
+        conn.enable_load_extension(False)
 
 
 def _open(db_path: str) -> sqlite3.Connection:
@@ -18,6 +61,7 @@ def _open(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
+    _load_sqlite_vec(conn)
     return conn
 
 
