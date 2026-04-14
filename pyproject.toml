@@ -42,6 +42,15 @@ dev = [
   "pytest-asyncio>=0.24",
   "ruff>=0.7",
 ]
+m3-visual = [
+  "open-clip-torch>=2.24",
+  "torch>=2.2",
+  "pytesseract>=0.3.10",
+  "Pillow>=10.0",
+  "sqlite-vec>=0.1.0",
+  "numpy>=1.26",
+  "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
+]
 
 [project.scripts]
 mmrag = "mmrag.cli:app"
@@ -74,4 +83,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = [
   "ignore::DeprecationWarning",
+]
+markers = [
+  "m3_visual: requires the m3-visual optional extra (skipped when absent)",
 ]

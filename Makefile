@@ -12,12 +12,13 @@
 
 export UV_PROJECT_ENVIRONMENT := .venv.nosync
 
-.PHONY: help sync sync-dev test lint format clean init-db serve-api serve-mcp worker docker-build docker-up
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp worker docker-build docker-up
 
 help:
 	@echo "Targets:"
 	@echo "  make sync        # uv sync (runtime deps only)"
 	@echo "  make sync-dev    # uv sync --extra dev (runtime + test deps)"
+	@echo "  make sync-m3     # uv sync --extra dev --extra m3-visual (runtime + M3 deps)"
 	@echo "  make test        # uv run pytest -q"
 	@echo "  make lint        # uv run ruff check src tests"
 	@echo "  make format      # uv run ruff format src tests"
@@ -34,6 +35,9 @@ sync:
 
 sync-dev:
 	uv sync --extra dev
+
+sync-m3:
+	uv sync --extra dev --extra m3-visual
 
 test:
 	uv run pytest -q
