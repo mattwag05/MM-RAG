@@ -86,11 +86,14 @@ What's wired end-to-end today:
 - `ModelProvider` ABC with `OllamaProvider` shell (M4 ships the real impl)
 - Dockerfile + docker-compose for Mac dev (Pi-targeted M6)
 
-Open milestones (see `bd ready`):
+Open milestones (see `bd ready` and `docs/pmf-rethink.md` for full rationale):
 - **M3** — visual (frame sampling + Tesseract OCR + SigLIP + sqlite-vec hybrid)
-- **M4** — reasoning (scene summaries + ask evidence pack + Gemma 4 fallback)
-- **M5** — Social Bookmarks Triage REST integration (`push_to_sbt`)
-- **M6** — Raspberry Pi deploy
+- **M4** — evidence packs, synth opt-in (`ask` returns rich evidence by default; `answer` is `str | None`; Gemma/Ollama moves to an optional `[reasoning]` extra)
+- **M5** — streamable-HTTP MCP transport (tailnet-hosted shared service on Pironman; all edge agents hit one index)
+- **M6** — Pi / Pironman deploy (lighter footprint: no bundled Gemma; depends on M5 transport)
+- **M7** — Social Bookmarks Triage REST integration (reference consumer, not core)
+
+v1 is a **single-tenant tailnet service**: one MM-RAG instance, shared bearer token in env, Tailscale-only bind. No caller IDs, no per-caller quotas, no asset-visibility scoping. Multi-tenant auth is post-v1. See `docs/pmf-rethink.md` for the thesis and audit behind this ordering.
 
 ## Build & Test
 
