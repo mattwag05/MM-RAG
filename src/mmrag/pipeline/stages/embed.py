@@ -1,10 +1,13 @@
 """Stage 7: SigLIP image + text embeddings via open_clip.
 
-Loads ``ViT-B-16-SigLIP-256`` once per process (~200 MB on CPU), encodes
-each frame's JPEG via the image tower, mean-pools per-scene to produce
-scene vectors (no second forward pass), and encodes each transcript
-segment's text via the text tower. All vectors are L2-normalized 768-d
-float32 arrays, returned as Python lists for downstream JSON-friendliness.
+Loads ``ViT-B-16-SigLIP-256`` once per process. First-run footprint:
+~780 MB on disk at ``~/.cache/huggingface/hub/models--timm--ViT-B-16-SigLIP-256/``
+and ~500 MB peak RAM during inference on CPU. Subsequent runs hit the
+cache. Encodes each frame's JPEG via the image tower, mean-pools
+per-scene to produce scene vectors (no second forward pass), and encodes
+each transcript segment's text via the text tower. All vectors are
+L2-normalized 768-d float32 arrays, returned as Python lists for
+downstream JSON-friendliness.
 """
 
 from __future__ import annotations
@@ -27,9 +30,12 @@ _BATCH_TEXT = 16
 def _load_model() -> tuple[Any, Any, Any]:
     """Create-and-cache the SigLIP model, preprocess transform, and tokenizer.
 
-    Model is pinned to inference mode via ``train(False)``; we also disable
-    autograd globally so every subsequent ``encode_image``/``encode_text``
-    call runs without building a graph.
+    Model is pinned to inference mode via ``train(False)``. Autograd is
+    NOT disabled here — each encode function wraps its forward pass in a
+    ``torch.no_grad()`` context manager and calls ``.detach()`` before
+    handing the tensor to NumPy. That per-call pattern is thread-safer
+    than a module-level ``set_grad_enabled(False)``, which can be
+    reverted by other call paths under ``asyncio.to_thread``.
     """
     global _MODEL, _PREPROCESS, _TOKENIZER
     if _MODEL is not None:
@@ -98,7 +104,8 @@ def _mean_pool_scene_vectors(frame_entries: list[dict]) -> list[dict]:
     for entry in frame_entries:
         by_scene.setdefault(int(entry["scene_idx"]), []).append(entry["vector"])
     out: list[dict] = []
-    for scene_idx, vecs in by_scene.items():
+    for scene_idx in sorted(by_scene.keys()):
+        vecs = by_scene[scene_idx]
         mean = np.mean(np.asarray(vecs, dtype="float32"), axis=0)
         n = float(np.linalg.norm(mean))
         if n > 0:
@@ -113,6 +120,13 @@ async def embed(
     scenes: list[dict],
     segments: list[dict],
 ) -> dict:
+    """Run the SigLIP image + text embeddings stage.
+
+    The ``scenes`` parameter is accepted for runner-dispatch uniformity
+    (every post-M2 stage takes ``scenes``) but is not read here — scene
+    vectors are derived by grouping ``frame_vectors`` on their
+    ``scene_idx`` field and mean-pooling. See ``_mean_pool_scene_vectors``.
+    """
     frame_vectors: list[dict] = []
     scene_vectors: list[dict] = []
     segment_vectors: list[dict] = []
