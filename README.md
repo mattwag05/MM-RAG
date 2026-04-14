@@ -68,10 +68,13 @@ which clip in your library is the one where the onboarding modal appears.
 
 ```bash
 brew install ffmpeg                   # required system binary (LGPL, not bundled)
+brew install tesseract                # required for OCR stage (Apache-2, not bundled)
 
 git clone <this repo>
 cd MM-RAG
 make sync-dev                         # installs Python 3.13, runtime + dev deps into .venv.nosync/
+# For the M3 visual pipeline (frame sampling, OCR, SigLIP embeddings):
+make sync-m3                          # adds torch, open-clip-torch, pytesseract, sqlite-vec, etc.
 make init-db                          # creates ~/.local/share/mmrag/mmrag.db
 make serve-api &                      # FastAPI REST on http://127.0.0.1:8765
 make worker &                         # drains the job queue
@@ -239,12 +242,16 @@ public domain. No GPL/AGPL anywhere in the runtime tree.
 | `uvicorn`       | BSD-3          | ASGI server                     |
 | `setuptools`    | MIT            | build backend                   |
 
-Two non-Python pieces are required and **not bundled**:
+Three non-Python pieces are required and **not bundled**:
 
 1. **`ffmpeg`** (LGPL) — install via `brew install ffmpeg` /
    `apt install ffmpeg`. LGPL is fine for an MIT Python project as long as
    we don't statically link or redistribute it, and we don't.
-2. **Ollama + Gemma 4 weights.** Install Ollama from
+2. **`tesseract`** (Apache-2) — install via `brew install tesseract` /
+   `apt install tesseract-ocr`. Required for the M3 OCR stage. The Python
+   `pytesseract` binding (pulled in by `make sync-m3`) calls this system binary;
+   ingest fails fast with a clear error if it's missing.
+3. **Ollama + Gemma 4 weights.** Install Ollama from
    <https://ollama.com/download> and run `ollama pull gemma4:e4b` /
    `ollama pull gemma4:e2b`. Gemma weights are released under Google's
    Gemma terms (not MIT). `mmrag` does not bundle, redistribute, or
@@ -298,8 +305,8 @@ independently testable; the project pauses for review between them.
 | Milestone | Status | Scope |
 |-----------|:------:|-------|
 | **M1** | ✅ | Walking skeleton: project layout, `uv` + Python 3.13, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
-| M2 | 🧱 | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
-| M3 | 🧱 | Frame sampling + Tesseract OCR + SigLIP image+text embeddings + sqlite-vec hybrid retrieval (RRF) |
+| **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
+| **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | M4 | 🧱 | Per-scene summaries via `gemma4:e2b` + `ask` evidence-pack assembly + final answer via `gemma4:e4b` with `e2b` fallback |
 | M5 | 🧱 | Social Bookmarks Triage REST integration (`push_to_sbt=true`, idempotent `postId` hash, Prisma migration on the SBT side adding `transcriptText` to its FTS) |
 | M6 | 🧱 | Raspberry Pi deploy (multi-arch Docker, FIFO+systemd harness, ARM-tuned defaults) |
