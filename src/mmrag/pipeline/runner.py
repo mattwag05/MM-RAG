@@ -198,8 +198,13 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
             scenes=state.get("scenes", []),
         )
     if stage is Stage.FRAME_SAMPLE:
+        settings = get_settings()
         return await frame_sample(
-            mezzanine_path=state.get("mezzanine_path"), mode=mode
+            mezzanine_path=state.get("mezzanine_path"),
+            scenes=state.get("scenes", []),
+            assets_dir=settings.assets_dir,
+            content_hash=state.get("content_hash", ""),
+            mode=mode,
         )
     if stage is Stage.OCR:
         return await ocr(frames=state.get("frames", []))
