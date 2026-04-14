@@ -62,31 +62,31 @@ def _record_error(job_id: str, kind: str, message: str) -> None:
         )
 
 
-def _persist_shots(*, asset_id: str, shots: list[dict]) -> None:
-    """Upsert shot rows for an asset. Idempotent via UNIQUE(asset_id, shot_idx)."""
-    if not shots:
+def _persist_scenes(*, asset_id: str, scenes: list[dict]) -> None:
+    """Upsert scene rows for an asset. Idempotent via UNIQUE(asset_id, scene_idx)."""
+    if not scenes:
         return
     with connect() as conn, transaction(conn):
-        for shot in shots:
+        for scene in scenes:
             conn.execute(
                 """
-                INSERT INTO shots (asset_id, shot_idx, start_s, end_s)
+                INSERT INTO scenes (asset_id, scene_idx, start_s, end_s)
                 VALUES (?, ?, ?, ?)
-                ON CONFLICT(asset_id, shot_idx) DO UPDATE SET
+                ON CONFLICT(asset_id, scene_idx) DO UPDATE SET
                     start_s = excluded.start_s,
                     end_s = excluded.end_s
                 """,
                 (
                     asset_id,
-                    int(shot["shot_idx"]),
-                    float(shot["start_s"]),
-                    float(shot["end_s"]),
+                    int(scene["scene_idx"]),
+                    float(scene["start_s"]),
+                    float(scene["end_s"]),
                 ),
             )
 
 
 def _persist_segments(*, asset_id: str, segments: list[dict]) -> None:
-    """Upsert transcript segments + map shot_idx → shot.id for the FK.
+    """Upsert transcript segments + map scene_idx → scenes.id for the FK.
 
     Idempotent via UNIQUE(asset_id, seg_idx). FTS index is kept in sync by
     the triggers on transcript_segments.
@@ -94,32 +94,32 @@ def _persist_segments(*, asset_id: str, segments: list[dict]) -> None:
     if not segments:
         return
     with connect() as conn, transaction(conn):
-        shot_rows = conn.execute(
-            "SELECT id, shot_idx FROM shots WHERE asset_id = ?",
+        scene_rows = conn.execute(
+            "SELECT id, scene_idx FROM scenes WHERE asset_id = ?",
             (asset_id,),
         ).fetchall()
-        shot_id_by_idx: dict[int, int] = {
-            int(r["shot_idx"]): int(r["id"]) for r in shot_rows
+        scene_id_by_idx: dict[int, int] = {
+            int(r["scene_idx"]): int(r["id"]) for r in scene_rows
         }
         for seg in segments:
-            shot_idx = seg.get("shot_idx")
-            shot_id = (
-                shot_id_by_idx.get(int(shot_idx)) if shot_idx is not None else None
+            scene_idx = seg.get("scene_idx")
+            scene_id = (
+                scene_id_by_idx.get(int(scene_idx)) if scene_idx is not None else None
             )
             conn.execute(
                 """
                 INSERT INTO transcript_segments
-                    (asset_id, shot_id, seg_idx, start_s, end_s, text)
+                    (asset_id, scene_id, seg_idx, start_s, end_s, text)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(asset_id, seg_idx) DO UPDATE SET
-                    shot_id = excluded.shot_id,
+                    scene_id = excluded.scene_id,
                     start_s = excluded.start_s,
                     end_s = excluded.end_s,
                     text = excluded.text
                 """,
                 (
                     asset_id,
-                    shot_id,
+                    scene_id,
                     int(seg["seg_idx"]),
                     float(seg["start_s"]),
                     float(seg["end_s"]),
@@ -195,7 +195,7 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
     if stage is Stage.TRANSCRIBE:
         return await transcribe(
             audio_path=state.get("audio_path"),
-            shots=state.get("shots", []),
+            scenes=state.get("scenes", []),
         )
     if stage is Stage.FRAME_SAMPLE:
         return await frame_sample(
@@ -205,12 +205,12 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
         return await ocr(frames=state.get("frames", []))
     if stage is Stage.EMBED:
         return await embed(
-            shots=state.get("shots", []),
+            scenes=state.get("scenes", []),
             frames=state.get("frames", []),
             segments=state.get("segments", []),
         )
     if stage is Stage.SUMMARIZE:
-        return await summarize(shots=state.get("shots", []))
+        return await summarize(scenes=state.get("scenes", []))
     raise ValueError(f"unknown stage: {stage}")
 
 
@@ -258,9 +258,9 @@ async def run_pipeline(job_id: str) -> None:
                 # technical metadata, so that GET /asset/{id} works mid-job.
                 _upsert_asset(state)
             elif stage is Stage.SCENE_DETECT and state.get("asset_id"):
-                _persist_shots(
+                _persist_scenes(
                     asset_id=state["asset_id"],
-                    shots=state.get("shots", []),
+                    scenes=state.get("scenes", []),
                 )
             elif stage is Stage.TRANSCRIBE and state.get("asset_id"):
                 _persist_segments(

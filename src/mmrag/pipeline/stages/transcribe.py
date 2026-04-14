@@ -7,7 +7,7 @@ The stage is structured in two layers:
   source order. Tests monkey-patch this with a fake so the stage logic can
   be exercised without loading a 40 MB model.
 - ``transcribe`` is the stage entry point. It trims empty output, assigns a
-  ``seg_idx``, and associates each segment with a shot via ``_assign_shot``.
+  ``seg_idx``, and associates each segment with a scene via ``_assign_scene``.
 """
 
 from __future__ import annotations
@@ -21,11 +21,10 @@ from mmrag.logging import get_logger
 log = get_logger("stage.transcribe")
 
 _WHISPER_MODEL = None
-_WHISPER_MODEL_SIZE = "tiny.en"  # ~39 MB, CPU-int8 friendly, English-only
+_WHISPER_MODEL_SIZE = "tiny.en"
 
 
 def _get_model():
-    """Load the faster-whisper model once per process."""
     global _WHISPER_MODEL
     if _WHISPER_MODEL is None:
         from faster_whisper import WhisperModel
@@ -43,10 +42,6 @@ def _get_model():
 
 
 def _run_speech_to_text(audio_path: str) -> list[dict]:
-    """Primitive: audio file → list of {start, end, text} dicts in source order.
-
-    Monkey-patched in unit tests to avoid loading the real model.
-    """
     model = _get_model()
     segs, _ = model.transcribe(
         audio_path,
@@ -60,27 +55,26 @@ def _run_speech_to_text(audio_path: str) -> list[dict]:
     ]
 
 
-def _assign_shot(start_s: float, shots: list[dict]) -> int | None:
-    """Return the shot_idx whose [start_s, end_s) contains start_s, else None."""
-    if not shots:
+def _assign_scene(start_s: float, scenes: list[dict]) -> int | None:
+    """Return the scene_idx whose [start_s, end_s) contains start_s, else None."""
+    if not scenes:
         return None
-    for s in shots:
+    for s in scenes:
         if s["start_s"] <= start_s < s["end_s"]:
-            return int(s["shot_idx"])
-    # Past the last shot's start? Snap to the final shot.
-    if start_s >= shots[-1]["start_s"]:
-        return int(shots[-1]["shot_idx"])
+            return int(s["scene_idx"])
+    if start_s >= scenes[-1]["start_s"]:
+        return int(scenes[-1]["scene_idx"])
     return None
 
 
-async def transcribe(*, audio_path: str | None, shots: list[dict]) -> dict:
+async def transcribe(*, audio_path: str | None, scenes: list[dict]) -> dict:
     if audio_path is None:
         return {"segments": []}
     if not Path(audio_path).exists():
         log.warning("audio_missing", path=audio_path)
         return {"segments": []}
 
-    log.info("transcribe.start", path=audio_path, n_shots=len(shots))
+    log.info("transcribe.start", path=audio_path, n_scenes=len(scenes))
     raw = await asyncio.to_thread(_run_speech_to_text, audio_path)
 
     segments: list[dict] = []
@@ -96,7 +90,7 @@ async def transcribe(*, audio_path: str | None, shots: list[dict]) -> dict:
                 "start_s": start_s,
                 "end_s": end_s,
                 "text": text,
-                "shot_idx": _assign_shot(start_s, shots),
+                "scene_idx": _assign_scene(start_s, scenes),
             }
         )
 
