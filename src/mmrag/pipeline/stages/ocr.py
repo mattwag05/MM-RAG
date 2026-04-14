@@ -1,14 +1,23 @@
 """Stage 6: OCR via Tesseract / pytesseract.
 
-Runs sequentially across frames with a per-frame 10s timeout via a shared
-ThreadPoolExecutor (pytesseract is in-process, spawning Tesseract itself
-as a subprocess). PSM 6 ("assume a single uniform block of text") is a
-reasonable default for burned-in captions, slides, title cards, and
-on-screen UI.
+Runs sequentially across frames with a per-frame 10s *abandon* timeout via
+a shared ``ThreadPoolExecutor(max_workers=1)``. pytesseract is in-process
+and spawns the Tesseract binary as its own subprocess, so the 10s
+``asyncio.wait_for`` stops waiting on the future — it does NOT kill the
+underlying Tesseract process. Worst case on a 60-frame video where every
+call hangs is `60 * actual_tesseract_runtime`, not `60 * 10s`. For
+Pi-class hardware this is an operational concern only when frames are
+huge and Tesseract is very slow; the mitigation (shelling Tesseract out
+via ``subprocess_util.run`` with SIGTERM escalation) is tracked for
+follow-up but not shipping in M3.
 
-Per-frame OCR failures set ``ocr_text = ""`` and log a warning — they do
-not fail the stage. A missing Tesseract binary is a hard error and raises
-``OCRError(kind='binary_missing')``.
+PSM 6 ("assume a single uniform block of text") is a reasonable default
+for burned-in captions, slides, title cards, and on-screen UI.
+
+Per-frame OCR failures set ``ocr_text = ""`` and log a structured
+warning — they do not fail the stage. A missing Tesseract binary is a
+hard error and raises ``OCRError(kind='binary_missing')`` before any
+frame runs.
 """
 
 from __future__ import annotations
@@ -24,12 +33,12 @@ log = get_logger("stage.ocr")
 _PSM = "--psm 6"
 _PER_FRAME_TIMEOUT_S = 10.0
 _OCR_POOL: ThreadPoolExecutor | None = None
-_TESSERACT_CHECKED = False
+_TESSERACT_AVAILABLE = False
 
 
 def _ensure_tesseract_available() -> None:
-    global _TESSERACT_CHECKED
-    if _TESSERACT_CHECKED:
+    global _TESSERACT_AVAILABLE
+    if _TESSERACT_AVAILABLE:
         return
     try:
         import pytesseract
@@ -44,7 +53,7 @@ def _ensure_tesseract_available() -> None:
                 f"Original error: {e}"
             ),
         ) from e
-    _TESSERACT_CHECKED = True
+    _TESSERACT_AVAILABLE = True
 
 
 def _pool() -> ThreadPoolExecutor:
@@ -73,6 +82,9 @@ async def _run_one(path: str) -> str:
     except FileNotFoundError:
         log.warning("ocr.file_missing", path=path)
         return ""
+    except OCRError:
+        # Typed hard errors must propagate — never downgrade them to "".
+        raise
     except Exception as e:  # noqa: BLE001
         log.warning("ocr.failed", path=path, error=str(e))
         return ""
