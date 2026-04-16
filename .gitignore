@@ -49,3 +49,9 @@ tests/fixtures/speech.mp4
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+
+# Claude
+.claude/worktrees/
+
+# Node
+node_modules/
