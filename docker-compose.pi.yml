@@ -1,0 +1,54 @@
+# Pi / homelab-host tailnet deploy. Public agent transport is MCP HTTP on 8766.
+# REST is intentionally not published here; keep it for local admin/debug.
+x-mmrag-pi-env: &mmrag-pi-env
+  MMRAG_DATA_DIR: /data
+  MMRAG_WORKER_CONCURRENCY: "1"
+  MMRAG_MCP_HOST: 0.0.0.0
+  MMRAG_MCP_PORT: "8766"
+  MMRAG_MCP_PATH: ${MMRAG_MCP_PATH:-/mcp}
+  MMRAG_MCP_PUBLIC_URL: ${MMRAG_MCP_PUBLIC_URL:-http://127.0.0.1:8766}
+  MMRAG_MCP_TOKEN: ${MMRAG_MCP_TOKEN:?MMRAG_MCP_TOKEN is required for Pi/tailnet MCP}
+  MMRAG_OLLAMA_URL: ${MMRAG_OLLAMA_URL:-http://127.0.0.1:11434}
+  MMRAG_LOG_LEVEL: ${MMRAG_LOG_LEVEL:-INFO}
+
+services:
+  mmrag-init:
+    image: mmrag:0.1.0
+    build: .
+    restart: "no"
+    command: ["mmrag", "init-db"]
+    volumes:
+      - mmrag-data:/data
+    environment:
+      <<: *mmrag-pi-env
+
+  mmrag-mcp:
+    image: mmrag:0.1.0
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mmrag-init:
+        condition: service_completed_successfully
+    command: ["mmrag", "serve-mcp-http"]
+    ports:
+      - "${MMRAG_PUBLISH_HOST:-127.0.0.1}:8766:8766"
+    volumes:
+      - mmrag-data:/data
+    environment:
+      <<: *mmrag-pi-env
+
+  mmrag-worker:
+    image: mmrag:0.1.0
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mmrag-init:
+        condition: service_completed_successfully
+    command: ["mmrag", "worker"]
+    volumes:
+      - mmrag-data:/data
+    environment:
+      <<: *mmrag-pi-env
+
+volumes:
+  mmrag-data:

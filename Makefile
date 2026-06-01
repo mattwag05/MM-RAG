@@ -24,7 +24,7 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual
 
-.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http worker docker-build docker-up
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http worker docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
 
 help:
 	@echo "Targets:"
@@ -42,6 +42,10 @@ help:
 	@echo "  make clean       # remove venv + caches"
 	@echo "  make docker-build"
 	@echo "  make docker-up"
+	@echo "  make docker-pi-config # validate Pi/tailnet compose config"
+	@echo "  make docker-pi-up     # start MCP + worker Pi/tailnet stack"
+	@echo "  make docker-pi-down"
+	@echo "  make docker-pi-logs"
 
 sync:
 	uv sync
@@ -84,3 +88,15 @@ docker-build:
 
 docker-up:
 	docker compose up
+
+docker-pi-config:
+	docker compose -f docker-compose.pi.yml config
+
+docker-pi-up:
+	docker compose -f docker-compose.pi.yml up -d
+
+docker-pi-down:
+	docker compose -f docker-compose.pi.yml down
+
+docker-pi-logs:
+	docker compose -f docker-compose.pi.yml logs -f

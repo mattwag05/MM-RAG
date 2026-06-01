@@ -165,6 +165,9 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
   how [agent], [agent], Kit, and Claude Code all query the same MM-RAG
   instance hosted on homelab-host.
 - **REST** (`serve-api`): admin + debug surface, not the agent path.
+- **Pi/homelab-host deploy**: `docker-compose.pi.yml` runs `mmrag-init`,
+  `mmrag-mcp`, and `mmrag-worker` against one `/data` volume. Only MCP HTTP
+  is published; REST stays off the tailnet-facing Compose path.
 
 **v1 is single-tenant.** No caller IDs, no per-caller quotas, no
 asset-visibility scoping. Auth is one shared bearer token per host.
@@ -199,9 +202,9 @@ the full rationale behind the current milestone ordering.
   deployment, shared bearer-token auth, safe loopback defaults, and public
   discovery metadata. Promoted from P3 because the PMF thesis *is* shared
   index over MCP, and stdio-only silos contradict that.
-- **M6** brings the Pi / homelab-host deploy. Lighter footprint than the
-  original scope (no bundled Gemma 4, no Ollama hard dep). Blocks on
-  M5 because a Pi that only speaks stdio is a single-agent silo.
+- **M6** **(shipped)** brings the Pi / homelab-host deploy path. The image
+  includes M3 visual runtime deps and the Compose stack exposes MCP HTTP +
+  worker without bundling Gemma 4 or Ollama.
 - **M7** brings the SBT integration. Demoted from P2 because it's a
   reference consumer, not a core PMF feature.
 - **post-v1**: bundled reasoning `[reasoning]` extra (`MM-RAG-rif`).
