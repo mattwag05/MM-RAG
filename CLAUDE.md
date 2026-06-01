@@ -216,7 +216,7 @@ See `docs/architecture.md` for the diagram and the full data flow.
   because `timm/ViT-B-16-SigLIP-256` simply has weak affinity for synthetic
   test patterns (it was trained on natural images). The pipeline is correct
   end-to-end; the threshold is a model-level constraint, not a bug. Follow-up
-  issue `MM-RAG-bbl` tracks the fixture improvement.
+  issue `MM-RAG-eb8` tracks the fixture improvement.
 - **Test isolation uses `reset_settings_for_tests`, NOT `monkeypatch.setenv +
   cache_clear`.** `get_settings` is a module-level singleton, not `@lru_cache`.
   Correct pattern: `reset_settings_for_tests(Settings(data_dir=tmp_path))` at
@@ -241,7 +241,7 @@ See `docs/architecture.md` for the diagram and the full data flow.
   index contains more than one asset. Workaround: add an auxiliary column to
   the `vec0` declaration (`CREATE VIRTUAL TABLE vec_frames USING vec0(embedding
   float[768], +asset_id TEXT)`) and filter via the auxiliary column in the
-  MATCH query. Tracked in `MM-RAG-687`; fix required before M5 multi-tenant
+  MATCH query. Tracked in `MM-RAG-dw0`; fix required before M5 multi-tenant
   deployment.
 - **open_clip's SigLIP HFTokenizer pulls in `transformers` at runtime.**
   `transformers>=4.40` is already in the `m3-visual` extra. Don't remove it
