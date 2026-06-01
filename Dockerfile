@@ -18,7 +18,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # uv for fast Python dependency installation.
-RUN pip install --no-cache-dir uv==0.11.5
+RUN pip install --no-cache-dir uv==0.11.17
 
 WORKDIR /app
 COPY pyproject.toml uv.lock* README.md LICENSE ./
