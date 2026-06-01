@@ -79,20 +79,13 @@ async def test_ocr_survives_single_frame_failure(tmp_path):
 
 
 async def test_ocr_raises_oc_rerror_when_tesseract_binary_missing(monkeypatch):
-    """If pytesseract.get_tesseract_version fails, ocr must raise OCRError
-    with kind='binary_missing' instead of downgrading to empty strings."""
-    import pytesseract
-
+    """A missing tesseract binary is a hard setup error, not per-frame failure."""
     from mmrag.pipeline import stages
     from mmrag.pipeline.m3_errors import OCRError
 
     # Nuke the cached success flag so the availability check runs again.
     monkeypatch.setattr(stages.ocr, "_TESSERACT_AVAILABLE", False)
-
-    def _raise(*args, **kwargs):
-        raise FileNotFoundError("tesseract is not installed")
-
-    monkeypatch.setattr(pytesseract, "get_tesseract_version", _raise)
+    monkeypatch.setattr(stages.ocr.shutil, "which", lambda _name: None)
 
     with pytest.raises(OCRError) as excinfo:
         await ocr(
@@ -109,3 +102,37 @@ async def test_ocr_raises_oc_rerror_when_tesseract_binary_missing(monkeypatch):
         )
     assert excinfo.value.kind == "binary_missing"
     assert "install" in excinfo.value.message.lower()
+
+
+async def test_ocr_timeout_uses_kill_capable_subprocess_wrapper(monkeypatch, tmp_path):
+    from mmrag.pipeline import stages
+    from mmrag.pipeline.subprocess_util import SubprocessTimeout
+
+    p = tmp_path / "slow.jpg"
+    _make_text_frame(p, "SLOW")
+    seen = {}
+
+    async def fake_run(argv, *, timeout_s, **kwargs):
+        seen["argv"] = argv
+        seen["timeout_s"] = timeout_s
+        raise SubprocessTimeout("tesseract exceeded timeout")
+
+    monkeypatch.setattr(stages.ocr, "_TESSERACT_AVAILABLE", True)
+    monkeypatch.setattr(stages.ocr, "run", fake_run)
+
+    patch = await ocr(
+        frames=[
+            {
+                "scene_idx": 0,
+                "frame_idx": 0,
+                "t_s": 0.0,
+                "path": str(p),
+                "width": 400,
+                "height": 120,
+            }
+        ]
+    )
+
+    assert patch["frames"][0]["ocr_text"] == ""
+    assert seen["argv"] == ["tesseract", str(p), "stdout", "--psm", "6"]
+    assert seen["timeout_s"] == 10.0

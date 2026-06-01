@@ -14,7 +14,7 @@ import pytest
 # Module names (open_clip, PIL) not package names (open-clip-torch, Pillow).
 # importlib.util.find_spec takes the import name.
 def _m3_visual_available() -> bool:
-    for mod in ("open_clip", "pytesseract", "PIL", "sqlite_vec", "numpy"):
+    for mod in ("open_clip", "PIL", "sqlite_vec", "numpy"):
         if importlib.util.find_spec(mod) is None:
             return False
     return True
