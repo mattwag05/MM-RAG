@@ -55,3 +55,6 @@ tests/fixtures/speech.mp4
 
 # Node
 node_modules/
+
+# Beads / Dolt files (added by bd init)
+.beads/proxieddb/
