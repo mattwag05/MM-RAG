@@ -19,7 +19,7 @@ async def handle_status(inp: StatusInput) -> StatusOutput:
         raise JobNotFound(inp.job_id)
 
     error: str | None = None
-    if row["error_kind"] or row["error_message"]:
+    if row["status"] == "error" and (row["error_kind"] or row["error_message"]):
         error = f"{row['error_kind'] or 'error'}: {row['error_message'] or ''}".strip()
 
     return StatusOutput(

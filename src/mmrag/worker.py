@@ -4,7 +4,7 @@ import asyncio
 
 from mmrag.db.connection import connect
 from mmrag.logging import get_logger
-from mmrag.pipeline.runner import run_pipeline
+from mmrag.pipeline.runner import JOB_LEASE_STALE_SECONDS, run_pipeline
 
 log = get_logger("worker")
 
@@ -12,12 +12,27 @@ POLL_INTERVAL_S = 1.0
 
 
 def _claim_pending() -> list[str]:
-    """Return up to N job ids to drain on this tick. The runner is idempotent
-    so we don't bother taking a row lock — the worst case is duplicate work
-    and the asset upsert dedups it."""
+    """Return queued or stale-running job ids to drain on this tick."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id FROM jobs WHERE status IN ('queued','running') ORDER BY created_at LIMIT 16"
+            f"""
+            SELECT id
+              FROM jobs
+             WHERE status = 'queued'
+                OR (
+                    status = 'running'
+                    AND (
+                        runner_heartbeat_at IS NULL
+                        OR runner_heartbeat_at < strftime(
+                            '%Y-%m-%dT%H:%M:%fZ',
+                            'now',
+                            '-{JOB_LEASE_STALE_SECONDS} seconds'
+                        )
+                    )
+                )
+             ORDER BY created_at
+             LIMIT 16
+            """
         ).fetchall()
     return [r["id"] for r in rows]
 

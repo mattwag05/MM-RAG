@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+import uuid
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect, transaction
@@ -18,6 +19,63 @@ from mmrag.pipeline.stages.summarize import summarize
 from mmrag.pipeline.stages.transcribe import transcribe
 
 log = get_logger("runner")
+
+JOB_LEASE_STALE_SECONDS = 3600
+
+
+def _stale_lease_expr() -> str:
+    return f"strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-{JOB_LEASE_STALE_SECONDS} seconds')"
+
+
+def _claim_job(job_id: str, runner_id: str) -> dict | None:
+    """Atomically claim a queued or stale-running job for this runner."""
+    stale_expr = _stale_lease_expr()
+    with connect() as conn, transaction(conn):
+        cur = conn.execute(
+            f"""
+            UPDATE jobs
+               SET status = 'running',
+                   runner_id = ?,
+                   runner_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                   error_kind = NULL,
+                   error_message = NULL,
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?
+               AND (
+                    status = 'queued'
+                    OR (
+                        status = 'running'
+                        AND (
+                            runner_heartbeat_at IS NULL
+                            OR runner_heartbeat_at < {stale_expr}
+                        )
+                    )
+               )
+            """,
+            (runner_id, job_id),
+        )
+        if cur.rowcount != 1:
+            return None
+        row = conn.execute(
+            "SELECT id, source, mode, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+
+def _refresh_lease(job_id: str, runner_id: str) -> None:
+    with connect() as conn, transaction(conn):
+        conn.execute(
+            """
+            UPDATE jobs
+               SET runner_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?
+               AND runner_id = ?
+               AND status = 'running'
+            """,
+            (job_id, runner_id),
+        )
 
 
 def _persist_state(job_id: str, state: dict, stage: Stage, progress: float) -> None:
@@ -41,10 +99,17 @@ def _set_status(job_id: str, status: JobStatus) -> None:
             """
             UPDATE jobs
                SET status = ?,
+                   error_kind = CASE WHEN ? = 'done' THEN NULL ELSE error_kind END,
+                   error_message = CASE WHEN ? = 'done' THEN NULL ELSE error_message END,
+                   runner_id = CASE WHEN ? IN ('done', 'error') THEN NULL ELSE runner_id END,
+                   runner_heartbeat_at = CASE
+                       WHEN ? IN ('done', 'error') THEN NULL
+                       ELSE runner_heartbeat_at
+                   END,
                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?
             """,
-            (status.value, job_id),
+            (status.value, status.value, status.value, status.value, status.value, job_id),
         )
 
 
@@ -56,6 +121,8 @@ def _record_error(job_id: str, kind: str, message: str) -> None:
                SET status = 'error',
                    error_kind = ?,
                    error_message = ?,
+                   runner_id = NULL,
+                   runner_heartbeat_at = NULL,
                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = ?
             """,
@@ -435,13 +502,10 @@ async def run_pipeline(job_id: str) -> None:
     Idempotent: if the job already advanced past a stage, skipped stages
     are no-ops on next attempt.
     """
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT id, source, mode, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
-            (job_id,),
-        ).fetchone()
+    runner_id = str(uuid.uuid4())
+    row = _claim_job(job_id, runner_id)
     if row is None:
-        log.warning("job_missing", job_id=job_id)
+        log.info("job_claim_skipped", job_id=job_id)
         return
 
     state: dict = json.loads(row["pipeline_state_json"] or "{}")
@@ -450,11 +514,10 @@ async def run_pipeline(job_id: str) -> None:
     completed_stage = Stage(row["stage"]) if row["stage"] else Stage.QUEUED
     mode = row["mode"] or "standard"
 
-    _set_status(job_id, JobStatus.RUNNING)
-
     try:
         n_stages = len(M1_STAGE_ORDER)
         for idx, stage in enumerate(M1_STAGE_ORDER):
+            _refresh_lease(job_id, runner_id)
             # Resume past completed stages.
             already_completed = (
                 completed_stage != Stage.QUEUED
@@ -537,6 +600,7 @@ async def run_pipeline(job_id: str) -> None:
                 rewrite_content_items_for_asset(state["asset_id"])
             progress = (idx + 1) / n_stages
             _persist_state(job_id, _strip_internal(state), stage, progress)
+            _refresh_lease(job_id, runner_id)
             log.info(
                 "stage.done",
                 job_id=job_id,

@@ -55,6 +55,8 @@ class Job(BaseModel):
     error_kind: str | None = None
     error_message: str | None = None
     wait_ms: int = 30000
+    runner_id: str | None = None
+    runner_heartbeat_at: datetime | None = None
     pipeline_state: dict = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
