@@ -127,6 +127,8 @@ make serve-api                            # FastAPI on :8765
 make serve-mcp                            # FastMCP over stdio
 make worker                               # drain the job queue
 make test                                 # full test suite (61 tests)
+make lint                                 # ruff check  src tests (correctness/style gate)
+make format                               # ruff format src tests (separate formatter gate)
 ```
 
 In a **sandboxed shell** (e.g. Claude Code's Bash), `make test`'s OCR tests fail
