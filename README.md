@@ -77,7 +77,8 @@ which clip in your library is the one where the onboarding modal appears.
   selection hook for homelab experiments.
 - ✅ Optional Social Bookmarks Triage push via `push_to_sbt=true`.
 - ✅ Pi/tailnet Docker Compose path for MCP HTTP + worker, with no bundled
-  Ollama/Gemma dependency.
+  Ollama/Gemma dependency. The MCP service enqueues ingests and the worker
+  owns pipeline execution in this profile.
 
 ---
 
@@ -212,7 +213,9 @@ transport.
 The Pi deployment is MCP-first: one shared tailnet service on port `8766`
 plus a worker draining the same SQLite volume. It includes the visual
 retrieval stack (`m3-visual`, ffmpeg, Tesseract) but does not bundle Ollama,
-Gemma weights, or the optional `reasoning` extra.
+Gemma weights, or the optional `reasoning` extra. The Pi Compose file sets
+`MMRAG_INGEST_INLINE=false`, so `mmrag-mcp` stays a transport/queue service
+and `mmrag-worker` runs the heavy ingest pipeline.
 
 Local loopback validation:
 
@@ -364,7 +367,9 @@ pluggable slot for a dedicated video VLM (LLaVA-Video, VideoLLaMA, future
 people actually ingest interactively is short-form social content (Reels,
 Shorts, TikToks). The 30-second default is enough for the bread-and-butter
 case to feel synchronous; long videos correctly fall back to polling without
-changing the agent's tool-call shape.
+changing the agent's tool-call shape. Pi/tailnet Compose disables inline
+execution, so `wait_ms` waits for the separate worker instead of doing heavy
+work in the MCP server process.
 
 **Why no UI?** Because the MCP tools and the REST mirror are the surface.
 A UI would be a separate project layered on top.

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     mcp_token: str | None = None
     mcp_public_url: str | None = None
     log_level: str = "INFO"
+    ingest_inline: bool = True
     worker_concurrency: int = 2
     graph_enabled: bool = True
     vector_backend: str = "sqlite"
