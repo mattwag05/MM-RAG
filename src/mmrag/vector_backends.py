@@ -18,11 +18,19 @@ class VectorHit:
 
 class VectorBackend(Protocol):
     def frame_hits(
-        self, qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None, limit: int
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
     ) -> list[VectorHit]: ...
 
     def transcript_hits(
-        self, qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None, limit: int
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
     ) -> list[VectorHit]: ...
 
 
@@ -36,7 +44,11 @@ def _cosine(distance: float) -> float:
 
 class SqliteVecBackend:
     def frame_hits(
-        self, qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None, limit: int
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
     ) -> list[VectorHit]:
         sql = """
             SELECT f.scene_id AS scene_id,
@@ -71,7 +83,11 @@ class SqliteVecBackend:
         ]
 
     def transcript_hits(
-        self, qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None, limit: int
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
     ) -> list[VectorHit]:
         sql = """
             SELECT ts.scene_id AS scene_id,
@@ -116,11 +132,19 @@ class QdrantBackend:
         self.url = url
 
     def frame_hits(
-        self, qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None, limit: int
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
     ) -> list[VectorHit]:
         return []
 
     def transcript_hits(
-        self, qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None, limit: int
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
     ) -> list[VectorHit]:
         return []

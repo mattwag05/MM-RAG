@@ -46,9 +46,7 @@ def is_loopback_host(host: str) -> bool:
 
 def validate_http_bind(host: str, token: str | None) -> None:
     if not is_loopback_host(host) and not token:
-        raise ValueError(
-            "MMRAG_MCP_TOKEN is required when serving MCP HTTP on a non-loopback host"
-        )
+        raise ValueError("MMRAG_MCP_TOKEN is required when serving MCP HTTP on a non-loopback host")
 
 
 def _base_url(*, host: str, port: int, public_url: str | None) -> str:
@@ -114,11 +112,18 @@ def _register_tools(server: FastMCP) -> None:
     async def search(
         query: str,
         asset_id: str | None = None,
+        time_range: list[float] | None = None,
         top_k: int = 10,
         mode: str = "hybrid",
     ) -> dict:
         """Search transcripts, OCR, document content, and optional graph context."""
-        inp = SearchInput(query=query, asset_id=asset_id, top_k=top_k, mode=mode)
+        inp = SearchInput(
+            query=query,
+            asset_id=asset_id,
+            time_range=tuple(time_range) if time_range is not None else None,
+            top_k=top_k,
+            mode=mode,
+        )
         out: SearchOutput = await handle_search(inp)
         return out.model_dump()
 

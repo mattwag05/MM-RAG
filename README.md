@@ -157,7 +157,7 @@ ask(question, asset_id=None, time_range=None, top_k=5,
                            summary, ocr_snippet, transcript_snippet }],
       confidence }
 
-search(query, asset_id=None, top_k=10,
+search(query, asset_id=None, time_range=None, top_k=10,
        mode="hybrid"|"vector"|"fts"|"hybrid_graph")
   → { hits: [{ asset_id, content_item_id, scene_id, frame_id, start_s, end_s,
                score, snippet, source_stream }] }
@@ -215,7 +215,9 @@ plus a worker draining the same SQLite volume. It includes the visual
 retrieval stack (`m3-visual`, ffmpeg, Tesseract) but does not bundle Ollama,
 Gemma weights, or the optional `reasoning` extra. The Pi Compose file sets
 `MMRAG_INGEST_INLINE=false`, so `mmrag-mcp` stays a transport/queue service
-and `mmrag-worker` runs the heavy ingest pipeline.
+and `mmrag-worker` runs the heavy ingest pipeline. It also sets
+`MMRAG_QUERY_VECTOR_ENABLED=false`, so hybrid MCP queries use FTS/content
+search without loading the SigLIP/open_clip model in the transport process.
 
 Local loopback validation:
 

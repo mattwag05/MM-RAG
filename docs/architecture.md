@@ -140,7 +140,7 @@ and `edges`. Each lives in its own numbered SQL file under
 ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
 ask(question, asset_id=None, time_range=None, top_k=5,
     synthesize=False, model="gemma4:e4b")
-search(query, asset_id=None, top_k=10,
+search(query, asset_id=None, time_range=None, top_k=10,
        mode="hybrid"|"vector"|"fts"|"hybrid_graph")
 status(job_id)
 ```

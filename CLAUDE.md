@@ -238,7 +238,9 @@ See `docs/architecture.md` for the diagram and the full data flow.
   for polling. In default/local mode the handler may run the pipeline inline and
   keep draining in-process after an early return. In Pi/tailnet mode
   `MMRAG_INGEST_INLINE=false`, so the handler only enqueues/polls and the
-  separate worker drains the job.
+  separate worker drains the job. Pi Compose also sets
+  `MMRAG_QUERY_VECTOR_ENABLED=false`, so MCP search does not load the
+  SigLIP/open_clip query encoder in the transport process.
 - **`mmrag.logging` shadows stdlib `logging`** when imported via
   `from mmrag.logging import ...`. That's fine internally but be careful in
   test/repro snippets that mix the two.
