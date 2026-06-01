@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import struct
-from pathlib import Path
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect, transaction

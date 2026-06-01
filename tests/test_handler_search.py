@@ -9,7 +9,7 @@ import pytest
 from mmrag.db.connection import connect
 from mmrag.handlers.search import handle_search
 from mmrag.models.mcp_io import SearchInput
-from mmrag.pipeline.runner import _persist_segments, _persist_scenes
+from mmrag.pipeline.runner import _persist_scenes, _persist_segments
 
 
 def _seed_asset_with_segments(asset_id: str, content_hash: str) -> None:
