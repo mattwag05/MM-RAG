@@ -110,6 +110,8 @@ async def fetch(*, source: str) -> dict:
             shutil.move(str(downloaded), str(raw_dest))
         else:
             shutil.copy2(str(downloaded), str(raw_dest))
+    elif source_kind == "url" and downloaded.resolve() != raw_dest.resolve():
+        downloaded.unlink(missing_ok=True)
 
     return {
         "asset_id": str(uuid.uuid4()),

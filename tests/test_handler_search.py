@@ -92,6 +92,25 @@ async def test_fts_search_no_match_returns_empty(isolated_data_dir: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_fts_search_handles_natural_language_punctuation(isolated_data_dir: Path) -> None:
+    _seed_asset_with_segments("a1", "h1")
+    out = await handle_search(SearchInput(query="What is multimodal retrieval?", mode="fts"))
+    assert len(out.hits) >= 1
+    assert out.hits[0].asset_id == "a1"
+
+
+@pytest.mark.asyncio
+async def test_fts_search_applies_time_range_before_top_k(isolated_data_dir: Path) -> None:
+    _seed_asset_with_segments("a1", "h1")
+    out = await handle_search(
+        SearchInput(query="multimodal OR gemma", mode="fts", top_k=1, time_range=(3.05, 4.0))
+    )
+    assert len(out.hits) == 1
+    assert out.hits[0].start_s == pytest.approx(3.1)
+    assert out.hits[0].end_s == pytest.approx(4.0)
+
+
+@pytest.mark.asyncio
 async def test_fts_search_ranked_by_bm25_higher_is_better(isolated_data_dir: Path) -> None:
     _seed_asset_with_segments("a1", "h1")
     out = await handle_search(SearchInput(query="multimodal OR gemma", mode="fts"))

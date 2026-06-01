@@ -80,7 +80,7 @@ async def handle_ingest(inp: IngestInput) -> IngestOutput:
     try:
         # wait_ms == 0 means "fire and forget, return immediately."
         if inp.wait_ms > 0:
-            await asyncio.wait_for(pipeline_task, timeout=inp.wait_ms / 1000.0)
+            await asyncio.wait_for(asyncio.shield(pipeline_task), timeout=inp.wait_ms / 1000.0)
     except TimeoutError:
         # Don't cancel; let the worker (or in-process task) keep running.
         pass

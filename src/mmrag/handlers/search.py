@@ -21,6 +21,7 @@ Vector/hybrid hits carry scene-level start_s/end_s from scenes table.
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass, field
 
@@ -32,6 +33,8 @@ log = get_logger("handler.search")
 
 _RRF_K = 60
 _PER_STREAM_TOP = 20
+_FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+_FTS_BINARY_OPS = {"AND", "OR"}
 
 
 @dataclass
@@ -64,7 +67,54 @@ def _pack(v: list[float]) -> bytes:
     return struct.pack(f"<{len(v)}f", *v)
 
 
-def _fts_transcript_stream(query: str, asset_id: str | None) -> list[_StreamHit]:
+def _fts_query(query: str) -> str | None:
+    """Convert caller text into a safe FTS5 expression.
+
+    Natural-language questions often contain punctuation that has syntax
+    meaning in FTS5. Tokenize to words, quote terms, and preserve explicit
+    AND/OR operators when users supply them.
+    """
+    tokens = _FTS_TOKEN_RE.findall(query)
+    if not tokens:
+        return None
+    out: list[str] = []
+    need_op = False
+    for token in tokens:
+        upper = token.upper()
+        if upper in _FTS_BINARY_OPS and need_op:
+            out.append(upper)
+            need_op = False
+            continue
+        if need_op:
+            out.append("OR")
+        out.append(f'"{token}"')
+        need_op = True
+    while out and out[-1] in _FTS_BINARY_OPS:
+        out.pop()
+    return " ".join(out) if out else None
+
+
+def _time_overlap_clause(alias: str) -> str:
+    return f" AND {alias}.end_s >= ? AND {alias}.start_s <= ?"
+
+
+def _time_point_clause(alias: str) -> str:
+    return f" AND {alias}.t_s >= ? AND {alias}.t_s <= ?"
+
+
+def _append_time_params(params: list, time_range: tuple[float, float] | None) -> None:
+    if time_range is None:
+        return
+    start, end = time_range
+    params.extend([start, end])
+
+
+def _fts_transcript_stream(
+    query: str, asset_id: str | None, time_range: tuple[float, float] | None
+) -> list[_StreamHit]:
+    fts_query = _fts_query(query)
+    if fts_query is None:
+        return []
     sql = """
         SELECT ts.scene_id   AS scene_id,
                ts.start_s    AS start_s,
@@ -75,10 +125,13 @@ def _fts_transcript_stream(query: str, asset_id: str | None) -> list[_StreamHit]
           JOIN transcript_segments ts ON ts.id = fts_transcript.rowid
          WHERE fts_transcript MATCH ?
     """
-    params: list = [query]
+    params: list = [fts_query]
     if asset_id is not None:
         sql += " AND ts.asset_id = ?"
         params.append(asset_id)
+    if time_range is not None:
+        sql += _time_overlap_clause("ts")
+        _append_time_params(params, time_range)
     sql += f" ORDER BY score DESC LIMIT {_PER_STREAM_TOP}"
     with connect() as conn:
         try:
@@ -100,7 +153,12 @@ def _fts_transcript_stream(query: str, asset_id: str | None) -> list[_StreamHit]
     ]
 
 
-def _fts_scenes_stream(query: str, asset_id: str | None) -> list[_StreamHit]:
+def _fts_scenes_stream(
+    query: str, asset_id: str | None, time_range: tuple[float, float] | None
+) -> list[_StreamHit]:
+    fts_query = _fts_query(query)
+    if fts_query is None:
+        return []
     sql = """
         SELECT s.id      AS scene_id,
                s.start_s AS start_s,
@@ -111,10 +169,13 @@ def _fts_scenes_stream(query: str, asset_id: str | None) -> list[_StreamHit]:
           JOIN scenes s ON s.id = fts_scenes.rowid
          WHERE fts_scenes MATCH ?
     """
-    params: list = [query]
+    params: list = [fts_query]
     if asset_id is not None:
         sql += " AND s.asset_id = ?"
         params.append(asset_id)
+    if time_range is not None:
+        sql += _time_overlap_clause("s")
+        _append_time_params(params, time_range)
     sql += f" ORDER BY score DESC LIMIT {_PER_STREAM_TOP}"
     with connect() as conn:
         try:
@@ -135,7 +196,9 @@ def _fts_scenes_stream(query: str, asset_id: str | None) -> list[_StreamHit]:
     ]
 
 
-def _vec_frames_stream(qvec: list[float], asset_id: str | None) -> list[_StreamHit]:
+def _vec_frames_stream(
+    qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None
+) -> list[_StreamHit]:
     sql = """
         SELECT f.scene_id AS scene_id,
                vf.rowid AS frame_id,
@@ -152,6 +215,12 @@ def _vec_frames_stream(qvec: list[float], asset_id: str | None) -> list[_StreamH
     else:
         sql = sql.format(asset_filter="")
         params = [_pack(qvec), _PER_STREAM_TOP]
+    if time_range is not None:
+        sql = sql.replace("           vf.embedding MATCH ?", _time_point_clause("f") + "\n           AND vf.embedding MATCH ?")
+        if asset_id is not None:
+            params = [asset_id, time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
+        else:
+            params = [time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
     with connect() as conn:
         try:
             rows = conn.execute(sql, params).fetchall()
@@ -172,7 +241,9 @@ def _vec_frames_stream(qvec: list[float], asset_id: str | None) -> list[_StreamH
     ]
 
 
-def _vec_transcript_stream(qvec: list[float], asset_id: str | None) -> list[_StreamHit]:
+def _vec_transcript_stream(
+    qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None
+) -> list[_StreamHit]:
     sql = """
         SELECT ts.scene_id AS scene_id,
                ts.text     AS text,
@@ -189,6 +260,12 @@ def _vec_transcript_stream(qvec: list[float], asset_id: str | None) -> list[_Str
     else:
         sql = sql.format(asset_filter="")
         params = [_pack(qvec), _PER_STREAM_TOP]
+    if time_range is not None:
+        sql = sql.replace("           vt.embedding MATCH ?", _time_overlap_clause("ts") + "\n           AND vt.embedding MATCH ?")
+        if asset_id is not None:
+            params = [asset_id, time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
+        else:
+            params = [time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
     with connect() as conn:
         try:
             rows = conn.execute(sql, params).fetchall()
@@ -263,8 +340,8 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
     streams: list[list[_StreamHit]] = []
 
     if inp.mode in ("fts", "hybrid"):
-        streams.append(_fts_transcript_stream(inp.query, inp.asset_id))
-        streams.append(_fts_scenes_stream(inp.query, inp.asset_id))
+        streams.append(_fts_transcript_stream(inp.query, inp.asset_id, inp.time_range))
+        streams.append(_fts_scenes_stream(inp.query, inp.asset_id, inp.time_range))
 
     if inp.mode in ("vector", "hybrid"):
         try:
@@ -273,8 +350,8 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
             log.warning("query_encode.failed", error=str(e))
             qvec = []
         if qvec:
-            streams.append(_vec_frames_stream(qvec, inp.asset_id))
-            streams.append(_vec_transcript_stream(qvec, inp.asset_id))
+            streams.append(_vec_frames_stream(qvec, inp.asset_id, inp.time_range))
+            streams.append(_vec_transcript_stream(qvec, inp.asset_id, inp.time_range))
 
     if inp.mode == "fts":
         # FTS-only: return segment-level timestamps for precision.

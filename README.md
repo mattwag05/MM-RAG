@@ -85,7 +85,7 @@ git clone <this repo>
 cd MM-RAG
 make sync-dev                         # uses Python 3.13 by default; installs runtime + dev deps
 # For the M3 visual pipeline (frame sampling, OCR, SigLIP embeddings):
-make sync-m3                          # adds torch, open-clip-torch, sqlite-vec, etc.
+make sync-m3                          # adds torch, open-clip-torch, Pillow, etc.
 make init-db                          # creates ~/.local/share/mmrag/mmrag.db
 make serve-api &                      # FastAPI REST on http://127.0.0.1:8765
 make serve-mcp-http &                 # Streamable HTTP MCP on http://127.0.0.1:8766/mcp

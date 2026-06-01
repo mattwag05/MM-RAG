@@ -51,6 +51,10 @@ class TestAsk:
         assert inp.model == "gemma4:e4b"
         assert inp.synthesize is False
 
+    def test_reversed_time_range_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            AskInput(question="what?", time_range=(5.0, 1.0))
+
     def test_evidence_shape(self) -> None:
         out = AskOutput(
             answer=None,
@@ -77,6 +81,10 @@ class TestSearch:
         inp = SearchInput(query="cats")
         assert inp.mode == "hybrid"
         assert inp.top_k == 10
+
+    def test_reversed_time_range_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SearchInput(query="cats", time_range=(5.0, 1.0))
 
     def test_hit_shape(self) -> None:
         out = SearchOutput(hits=[SearchHit(asset_id="a", start_s=0, end_s=1, score=0.9)])

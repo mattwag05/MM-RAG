@@ -96,3 +96,9 @@ async def test_discovery_route_returns_mcp_resource_metadata():
 def test_mcp_tool_registration_stays_four_tool_surface():
     server = create_mcp_server()
     assert set(server._tool_manager._tools) == {"ingest", "ask", "search", "status"}
+
+
+def test_mcp_ask_tool_exposes_time_range_parameter():
+    server = create_mcp_server()
+    ask_tool = server._tool_manager._tools["ask"]
+    assert "time_range" in ask_tool.parameters["properties"]

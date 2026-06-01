@@ -103,6 +103,7 @@ async def handle_ask(inp: AskInput) -> AskOutput:
             asset_id=inp.asset_id,
             top_k=inp.top_k,
             mode="hybrid",
+            time_range=inp.time_range,
         )
     )
     summaries = _scene_summaries([hit.scene_id for hit in search_out.hits])
