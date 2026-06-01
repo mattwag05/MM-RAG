@@ -184,8 +184,8 @@ the full rationale behind the current milestone ordering.
   a plain FTS5 `fts_scenes` index maintained by application code, and
   hybrid RRF retrieval across FTS transcript / FTS scenes / vector frames /
   vector transcript. Renamed `shots` → `scenes` across the schema.
-  Follow-up: `MM-RAG-687` (sqlite-vec k= pre-filter bug for multi-asset
-  indexes) and `MM-RAG-bbl` (natural-image acceptance fixture).
+  Follow-up: `MM-RAG-dw0` (sqlite-vec k= pre-filter bug for multi-asset
+  indexes) and `MM-RAG-eb8` (natural-image acceptance fixture).
 - **M4** brings evidence packs: rescoped from the original "Reasoning
   pipeline" to make `ask` evidence-only by default (`answer: str |
   None`, new `synthesize: bool = False` flag), enrich `search` to
