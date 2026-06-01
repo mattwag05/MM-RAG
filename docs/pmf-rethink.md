@@ -152,10 +152,10 @@ Concrete changes from the original M4 scope:
   evidence fields). Decide at implementation time which name preserves
   the cleanest contract.
 - Stage 8 (`summarize`) stays as a deterministic indexing artifact:
-  per-scene short-text distillation run once at ingest using a small
-  local model via the existing `OllamaProvider` shell, stored in
-  `scenes.summary`. This is *not* the same as `ask` answer synthesis —
-  it's an index column, not a request-time inference.
+  per-scene short-text distillation run once at ingest from transcript
+  and OCR text, stored in `scenes.summary`. This is *not* the same as
+  `ask` answer synthesis — it's an index column, not request-time
+  inference.
 - `OllamaProvider` and the answer-synthesis code path move into an
   optional `[reasoning]` pyproject extra. Core install has no Ollama
   hard dependency.

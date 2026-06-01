@@ -211,6 +211,25 @@ def _rewrite_fts_scenes(*, asset_id: str) -> None:
             )
 
 
+def _persist_scene_summaries(*, asset_id: str, summaries: list[dict]) -> None:
+    if not summaries:
+        return
+    with connect() as conn, transaction(conn):
+        for entry in summaries:
+            conn.execute(
+                """
+                UPDATE scenes
+                   SET summary = ?
+                 WHERE asset_id = ? AND scene_idx = ?
+                """,
+                (
+                    entry.get("summary"),
+                    asset_id,
+                    int(entry["scene_idx"]),
+                ),
+            )
+
+
 def _persist_vectors(
     *,
     asset_id: str,
@@ -402,7 +421,11 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
             segments=state.get("segments", []),
         )
     if stage is Stage.SUMMARIZE:
-        return await summarize(scenes=state.get("scenes", []))
+        return await summarize(
+            scenes=state.get("scenes", []),
+            segments=state.get("segments", []),
+            frames=state.get("frames", []),
+        )
     raise ValueError(f"unknown stage: {stage}")
 
 
@@ -506,6 +529,12 @@ async def run_pipeline(job_id: str) -> None:
                     scene_vectors=state.get("scene_vectors", []),
                     segment_vectors=state.get("segment_vectors", []),
                 )
+            elif stage is Stage.SUMMARIZE and state.get("asset_id"):
+                _persist_scene_summaries(
+                    asset_id=state["asset_id"],
+                    summaries=state.get("summaries", []),
+                )
+                rewrite_content_items_for_asset(state["asset_id"])
             progress = (idx + 1) / n_stages
             _persist_state(job_id, _strip_internal(state), stage, progress)
             log.info(

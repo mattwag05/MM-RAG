@@ -91,8 +91,8 @@ What's wired end-to-end today:
   PySceneDetect `ContentDetector` → faster-whisper `tiny.en` int8 →
   frame sampling (scene midpoints + 2s stride on long scenes) →
   Tesseract OCR (PSM 6, 10s timeout) → SigLIP-base-patch16-256 embed (768-d, L2-norm)
-- Stage 8 (summarize) remains a no-op stub; the runner walks all 8 so
-  progress reporting works through to `done`
+- Stage 8 (summarize) deterministically distills per-scene transcript/OCR
+  text into `scenes.summary` and rewrites `content_items` video-segment text
 - Runner persists scenes + frames + transcript segments incrementally after each
   stage (idempotent via UNIQUE keys, so re-ingest is a no-op)
 - `search` tool runs hybrid RRF over FTS transcript / FTS scenes / vec frames /
@@ -115,7 +115,7 @@ What's wired end-to-end today:
 
 Shipped:
 - **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
-- **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation.
+- **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation and deterministic per-scene summaries.
 - **M5** — streamable-HTTP MCP transport for one shared tailnet service (`MMRAG_MCP_HOST` / `MMRAG_MCP_PORT` / `MMRAG_MCP_PATH`, protected by `MMRAG_MCP_TOKEN` when not loopback). Discovery metadata is served at `/.well-known/mcp-resource`.
 - **M6** — Pi / Pironman deploy path: MCP HTTP + worker Compose stack,
   token-required tailnet bind, M3 visual runtime deps, no bundled Gemma/Ollama.
