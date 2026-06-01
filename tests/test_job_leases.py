@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 
 import pytest
 
@@ -200,3 +202,28 @@ async def test_worker_honors_configured_concurrency(isolated_data_dir, monkeypat
         release.set()
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_worker_signal_handler_cancels_running_worker(monkeypatch) -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def fake_run_worker() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(worker_mod, "run_worker", fake_run_worker)
+
+    task = asyncio.create_task(worker_mod.run_worker_until_signalled())
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    os.kill(os.getpid(), signal.SIGTERM)
+
+    await asyncio.wait_for(task, timeout=1.0)
+    assert cancelled.is_set()
