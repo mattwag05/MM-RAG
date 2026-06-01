@@ -15,9 +15,14 @@ pytestmark = pytest.mark.m3_visual
 def _make_test_video(path: Path, duration: int = 6) -> None:
     subprocess.run(
         [
-            "ffmpeg", "-y", "-f", "lavfi",
-            "-i", f"testsrc=duration={duration}:size=160x120:rate=24",
-            "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc=duration={duration}:size=160x120:rate=24",
+            "-pix_fmt",
+            "yuv420p",
             str(path),
         ],
         check=True,

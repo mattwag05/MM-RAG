@@ -15,7 +15,6 @@ class M3ExtraMissingError(Exception):
 
     def __init__(self, *, stage: str) -> None:
         super().__init__(
-            f"Stage {stage!r} requires the m3-visual extra. "
-            "Install with: make sync-m3"
+            f"Stage {stage!r} requires the m3-visual extra. Install with: make sync-m3"
         )
         self.stage = stage

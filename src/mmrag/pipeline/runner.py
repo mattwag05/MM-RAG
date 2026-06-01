@@ -98,14 +98,10 @@ def _persist_segments(*, asset_id: str, segments: list[dict]) -> None:
             "SELECT id, scene_idx FROM scenes WHERE asset_id = ?",
             (asset_id,),
         ).fetchall()
-        scene_id_by_idx: dict[int, int] = {
-            int(r["scene_idx"]): int(r["id"]) for r in scene_rows
-        }
+        scene_id_by_idx: dict[int, int] = {int(r["scene_idx"]): int(r["id"]) for r in scene_rows}
         for seg in segments:
             scene_idx = seg.get("scene_idx")
-            scene_id = (
-                scene_id_by_idx.get(int(scene_idx)) if scene_idx is not None else None
-            )
+            scene_id = scene_id_by_idx.get(int(scene_idx)) if scene_idx is not None else None
             conn.execute(
                 """
                 INSERT INTO transcript_segments
@@ -288,10 +284,7 @@ def _frame_id_map_from_db(asset_id: str) -> dict[tuple[int, int], int]:
             """,
             (asset_id,),
         ).fetchall()
-    return {
-        (int(r["scene_idx"]), int(r["frame_idx"])): int(r["id"])
-        for r in rows
-    }
+    return {(int(r["scene_idx"]), int(r["frame_idx"])): int(r["id"]) for r in rows}
 
 
 def _update_frame_ocr(*, asset_id: str, frames: list[dict]) -> None:
@@ -419,8 +412,7 @@ async def run_pipeline(job_id: str) -> None:
     """
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, source, mode, status, stage, pipeline_state_json "
-            "FROM jobs WHERE id = ?",
+            "SELECT id, source, mode, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
     if row is None:
@@ -474,12 +466,8 @@ async def run_pipeline(job_id: str) -> None:
                 # Stash the maps on the state dict under internal keys so
                 # the EMBED persist step can look them up. Keys are stripped
                 # from the JSON by _strip_internal before state is saved.
-                state["__frame_id_map"] = {
-                    f"{k[0]}:{k[1]}": v for k, v in frame_id_map.items()
-                }
-                state["__scene_id_by_idx"] = {
-                    str(k): v for k, v in scene_id_by_idx.items()
-                }
+                state["__frame_id_map"] = {f"{k[0]}:{k[1]}": v for k, v in frame_id_map.items()}
+                state["__scene_id_by_idx"] = {str(k): v for k, v in scene_id_by_idx.items()}
             elif stage is Stage.OCR and state.get("asset_id"):
                 _update_frame_ocr(
                     asset_id=state["asset_id"],
@@ -490,8 +478,7 @@ async def run_pipeline(job_id: str) -> None:
                 raw_frame_stash = state.get("__frame_id_map") or {}
                 if raw_frame_stash:
                     frame_id_map = {
-                        tuple(int(x) for x in k.split(":")): v
-                        for k, v in raw_frame_stash.items()
+                        tuple(int(x) for x in k.split(":")): v for k, v in raw_frame_stash.items()
                     }
                 else:
                     # Resume-from-crash fallback: stash was lost because
@@ -500,9 +487,7 @@ async def run_pipeline(job_id: str) -> None:
                     frame_id_map = _frame_id_map_from_db(state["asset_id"])
                 raw_scene_stash = state.get("__scene_id_by_idx") or {}
                 if raw_scene_stash:
-                    scene_id_by_idx = {
-                        int(k): v for k, v in raw_scene_stash.items()
-                    }
+                    scene_id_by_idx = {int(k): v for k, v in raw_scene_stash.items()}
                 else:
                     scene_id_by_idx = _scene_id_by_idx(state["asset_id"])
                 segment_id_by_idx = _segment_id_by_idx(state["asset_id"])

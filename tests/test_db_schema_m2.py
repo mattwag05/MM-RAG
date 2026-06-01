@@ -33,9 +33,7 @@ def test_transcript_segments_table_has_expected_columns(isolated_data_dir: Path)
 
 def test_fts_transcript_is_fts5(isolated_data_dir: Path) -> None:
     with connect() as conn:
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE name = 'fts_transcript'"
-        ).fetchone()
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'fts_transcript'").fetchone()
     assert row is not None
     assert "fts5" in row["sql"].lower()
 
@@ -44,8 +42,7 @@ def test_fts_trigger_mirrors_segment_text(isolated_data_dir: Path) -> None:
     """Inserting a transcript_segments row must make the text BM25-searchable."""
     with connect() as conn:
         conn.execute(
-            "INSERT INTO assets (id, content_hash, source_kind) VALUES "
-            "('a1', 'h1', 'file')"
+            "INSERT INTO assets (id, content_hash, source_kind) VALUES ('a1', 'h1', 'file')"
         )
         conn.execute(
             """
@@ -70,8 +67,7 @@ def test_fts_trigger_updates_on_delete(isolated_data_dir: Path) -> None:
     """Deleting a transcript_segments row must purge it from the FTS index."""
     with connect() as conn:
         conn.execute(
-            "INSERT INTO assets (id, content_hash, source_kind) VALUES "
-            "('a1', 'h1', 'file')"
+            "INSERT INTO assets (id, content_hash, source_kind) VALUES ('a1', 'h1', 'file')"
         )
         conn.execute(
             """
@@ -82,7 +78,6 @@ def test_fts_trigger_updates_on_delete(isolated_data_dir: Path) -> None:
         )
         conn.execute("DELETE FROM transcript_segments WHERE asset_id = 'a1'")
         count = conn.execute(
-            "SELECT COUNT(*) AS c FROM fts_transcript "
-            "WHERE fts_transcript MATCH 'unique_token_xyz'"
+            "SELECT COUNT(*) AS c FROM fts_transcript WHERE fts_transcript MATCH 'unique_token_xyz'"
         ).fetchone()["c"]
     assert count == 0

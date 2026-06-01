@@ -119,9 +119,7 @@ async def normalize(*, raw_path: str, content_hash: str, asset_dir: Path) -> dic
 
     if not audio_path.exists() and vstream is not None:
         # Only attempt audio extraction if the source has audio streams.
-        has_audio = any(
-            s.get("codec_type") == "audio" for s in probe.get("streams", [])
-        )
+        has_audio = any(s.get("codec_type") == "audio" for s in probe.get("streams", []))
         if has_audio:
             log.info("ffmpeg.audio", src=str(src), out=str(audio_path))
             try:

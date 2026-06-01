@@ -70,9 +70,7 @@ async def test_fts_search_returns_matching_segment(isolated_data_dir: Path) -> N
 async def test_fts_search_scopes_to_asset_id(isolated_data_dir: Path) -> None:
     _seed_asset_with_segments("a1", "h1")
     _seed_asset_with_segments("a2", "h2")
-    out = await handle_search(
-        SearchInput(query="multimodal", asset_id="a2", mode="fts")
-    )
+    out = await handle_search(SearchInput(query="multimodal", asset_id="a2", mode="fts"))
     assert len(out.hits) == 1
     assert out.hits[0].asset_id == "a2"
 
@@ -82,9 +80,7 @@ async def test_fts_search_respects_top_k(isolated_data_dir: Path) -> None:
     _seed_asset_with_segments("a1", "h1")
     # Every segment contains "the" or similar common word — use "is" which
     # only shows up in the middle segment after tokenization.
-    out = await handle_search(
-        SearchInput(query="multimodal OR fox OR gemma", mode="fts", top_k=2)
-    )
+    out = await handle_search(SearchInput(query="multimodal OR fox OR gemma", mode="fts", top_k=2))
     assert len(out.hits) == 2
 
 
@@ -98,9 +94,7 @@ async def test_fts_search_no_match_returns_empty(isolated_data_dir: Path) -> Non
 @pytest.mark.asyncio
 async def test_fts_search_ranked_by_bm25_higher_is_better(isolated_data_dir: Path) -> None:
     _seed_asset_with_segments("a1", "h1")
-    out = await handle_search(
-        SearchInput(query="multimodal OR gemma", mode="fts")
-    )
+    out = await handle_search(SearchInput(query="multimodal OR gemma", mode="fts"))
     assert len(out.hits) == 2
     # Scores should be finite, and we return higher-is-better so the sort
     # is descending.

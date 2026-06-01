@@ -14,9 +14,7 @@ pytestmark = pytest.mark.m3_visual  # vec_* requires the extra
 def _table_names(conn) -> set[str]:
     """Return the names of all regular and virtual tables (virtual tables
     surface as type='table' in sqlite_master — there is no 'virtual' type)."""
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'"
-    ).fetchall()
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
     return {r["name"] for r in rows}
 
 
@@ -44,8 +42,7 @@ def test_migration_0003_applies_cleanly(tmp_path):
 
             # scenes has a new summary column.
             cols = {
-                r["name"]: r["type"]
-                for r in conn.execute("PRAGMA table_info(scenes)").fetchall()
+                r["name"]: r["type"] for r in conn.execute("PRAGMA table_info(scenes)").fetchall()
             }
             assert "summary" in cols
             assert "scene_idx" in cols  # renamed from shot_idx
@@ -53,8 +50,7 @@ def test_migration_0003_applies_cleanly(tmp_path):
 
             # transcript_segments column rename.
             seg_cols = {
-                r["name"]
-                for r in conn.execute("PRAGMA table_info(transcript_segments)").fetchall()
+                r["name"] for r in conn.execute("PRAGMA table_info(transcript_segments)").fetchall()
             }
             assert "scene_id" in seg_cols
             assert "shot_id" not in seg_cols
@@ -67,6 +63,7 @@ def test_migration_0003_vec_tables_are_writable(tmp_path):
     try:
         apply_migrations()
         import struct
+
         blob = struct.pack("768f", *([0.0] * 768))
         with connect() as conn:
             conn.execute(

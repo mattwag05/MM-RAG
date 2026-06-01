@@ -43,6 +43,7 @@ def _ensure_tesseract_available() -> None:
         return
     try:
         import pytesseract
+
         pytesseract.get_tesseract_version()
     except Exception as e:  # noqa: BLE001
         raise OCRError(

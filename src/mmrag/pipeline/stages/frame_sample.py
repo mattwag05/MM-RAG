@@ -52,9 +52,7 @@ def _sample_times(start_s: float, end_s: float) -> list[float]:
     return out
 
 
-async def _write_one_frame(
-    mezzanine_path: str, t_s: float, out_path: Path
-) -> None:
+async def _write_one_frame(mezzanine_path: str, t_s: float, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     # Fast seek: `-ss` before `-i` lands on the nearest keyframe before t_s.
     # Trades pixel-exact accuracy for speed (~10x faster on long files).
@@ -62,11 +60,16 @@ async def _write_one_frame(
     # Pi target cannot afford the decode cost of slow seek (`-ss` after `-i`).
     await run(
         [
-            "ffmpeg", "-y",
-            "-ss", f"{t_s:.3f}",
-            "-i", mezzanine_path,
-            "-frames:v", "1",
-            "-q:v", "3",
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{t_s:.3f}",
+            "-i",
+            mezzanine_path,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
             str(out_path),
         ],
         timeout_s=_FRAME_TIMEOUT_S,

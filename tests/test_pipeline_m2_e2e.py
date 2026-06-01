@@ -18,17 +18,14 @@ async def test_ingest_sample_mp4_persists_scenes(isolated_data_dir: Path) -> Non
     """The sine-tone testsrc clip has no visual cuts → one fallback scene
     should land in the scenes table. This exercises the runner hook without
     depending on a TTS tool being available."""
-    result = await handle_ingest(
-        IngestInput(source=str(SAMPLE_MP4), wait_ms=120000)
-    )
+    result = await handle_ingest(IngestInput(source=str(SAMPLE_MP4), wait_ms=120000))
     assert result.status == "done", f"expected done, got {result.status}: {result.error}"
     asset_id = result.asset_id
     assert asset_id is not None
 
     with connect() as conn:
         rows = conn.execute(
-            "SELECT scene_idx, start_s, end_s FROM scenes "
-            "WHERE asset_id = ? ORDER BY scene_idx",
+            "SELECT scene_idx, start_s, end_s FROM scenes WHERE asset_id = ? ORDER BY scene_idx",
             (asset_id,),
         ).fetchall()
     assert len(rows) >= 1
@@ -41,9 +38,7 @@ async def test_ingest_speech_mp4_persists_transcript_segments(
 ) -> None:
     """Full pipeline on a clip containing real speech should populate
     transcript_segments, and the text should be BM25-searchable via FTS."""
-    result = await handle_ingest(
-        IngestInput(source=str(speech_mp4), wait_ms=180000)
-    )
+    result = await handle_ingest(IngestInput(source=str(speech_mp4), wait_ms=180000))
     assert result.status == "done", f"expected done, got {result.status}: {result.error}"
     asset_id = result.asset_id
     assert asset_id is not None
@@ -79,14 +74,10 @@ async def test_ingest_speech_mp4_persists_transcript_segments(
 
 
 @pytest.mark.asyncio
-async def test_mcp_ingest_then_search_round_trip(
-    isolated_data_dir: Path, speech_mp4: Path
-) -> None:
+async def test_mcp_ingest_then_search_round_trip(isolated_data_dir: Path, speech_mp4: Path) -> None:
     """Full MCP surface: handle_ingest the speech clip, then handle_search
     through the FTS path and confirm a hit points at the ingested asset."""
-    ingest = await handle_ingest(
-        IngestInput(source=str(speech_mp4), wait_ms=180000)
-    )
+    ingest = await handle_ingest(IngestInput(source=str(speech_mp4), wait_ms=180000))
     assert ingest.status == "done"
     asset_id = ingest.asset_id
     assert asset_id is not None
@@ -95,8 +86,7 @@ async def test_mcp_ingest_then_search_round_trip(
     # query deterministically regardless of which TTS voice generated the fixture.
     with connect() as conn:
         row = conn.execute(
-            "SELECT group_concat(text, ' ') AS joined "
-            "FROM transcript_segments WHERE asset_id = ?",
+            "SELECT group_concat(text, ' ') AS joined FROM transcript_segments WHERE asset_id = ?",
             (asset_id,),
         ).fetchone()
     assert row is not None and row["joined"]

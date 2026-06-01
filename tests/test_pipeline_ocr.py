@@ -20,9 +20,7 @@ def _make_text_frame(path: Path, text: str) -> None:
         font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
     except OSError:
         try:
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48
-            )
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
         except OSError:
             font = ImageFont.load_default()
     draw.text((10, 30), text, fill="black", font=font)
@@ -58,8 +56,22 @@ async def test_ocr_survives_single_frame_failure(tmp_path):
     good = tmp_path / "good.jpg"
     _make_text_frame(good, "OK")
     frames = [
-        {"scene_idx": 0, "frame_idx": 0, "t_s": 0.0, "path": str(good), "width": 400, "height": 120},
-        {"scene_idx": 0, "frame_idx": 1, "t_s": 1.0, "path": str(tmp_path / "missing.jpg"), "width": 400, "height": 120},
+        {
+            "scene_idx": 0,
+            "frame_idx": 0,
+            "t_s": 0.0,
+            "path": str(good),
+            "width": 400,
+            "height": 120,
+        },
+        {
+            "scene_idx": 0,
+            "frame_idx": 1,
+            "t_s": 1.0,
+            "path": str(tmp_path / "missing.jpg"),
+            "width": 400,
+            "height": 120,
+        },
     ]
     patch = await ocr(frames=frames)
     assert patch["frames"][0]["ocr_text"]
@@ -83,9 +95,17 @@ async def test_ocr_raises_oc_rerror_when_tesseract_binary_missing(monkeypatch):
     monkeypatch.setattr(pytesseract, "get_tesseract_version", _raise)
 
     with pytest.raises(OCRError) as excinfo:
-        await ocr(frames=[{
-            "scene_idx": 0, "frame_idx": 0, "t_s": 0.0,
-            "path": "/tmp/fake.jpg", "width": 1, "height": 1,
-        }])
+        await ocr(
+            frames=[
+                {
+                    "scene_idx": 0,
+                    "frame_idx": 0,
+                    "t_s": 0.0,
+                    "path": "/tmp/fake.jpg",
+                    "width": 1,
+                    "height": 1,
+                }
+            ]
+        )
     assert excinfo.value.kind == "binary_missing"
     assert "install" in excinfo.value.message.lower()

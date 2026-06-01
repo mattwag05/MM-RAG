@@ -32,9 +32,7 @@ async def ingest(
 ) -> dict:
     """Ingest a public URL or local file. Sync-if-fast (within wait_ms),
     async-if-slow. Returns a job_id you can poll with `status`."""
-    inp = IngestInput(
-        source=source, mode=mode, wait_ms=wait_ms, push_to_sbt=push_to_sbt
-    )
+    inp = IngestInput(source=source, mode=mode, wait_ms=wait_ms, push_to_sbt=push_to_sbt)
     out: IngestOutput = await handle_ingest(inp)
     return out.model_dump()
 
