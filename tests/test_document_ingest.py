@@ -45,7 +45,9 @@ async def test_markdown_ingest_projects_content_items_and_searches(
 @pytest.mark.asyncio
 async def test_hybrid_graph_expands_from_content_item_seed(isolated_data_dir: Path) -> None:
     doc = isolated_data_dir / "graph.md"
-    doc.write_text(("alpha seed sentence. " * 90) + "\n\nneighbor context about jets.", encoding="utf-8")
+    doc.write_text(
+        ("alpha seed sentence. " * 90) + "\n\nneighbor context about jets.", encoding="utf-8"
+    )
 
     ingest = await handle_ingest(IngestInput(source=str(doc), wait_ms=120000))
     assert ingest.status == "done"

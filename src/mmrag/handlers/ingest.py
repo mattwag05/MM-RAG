@@ -82,9 +82,7 @@ def _read_summary(asset_id: str | None) -> str | None:
             return None
         summary = " | ".join(str(r["text"]) for r in doc_rows)
         return summary[:1200] + ("…" if len(summary) > 1200 else "")
-    parts = [
-        f"{float(r['start_s']):.2f}-{float(r['end_s']):.2f}s: {r['summary']}" for r in rows
-    ]
+    parts = [f"{float(r['start_s']):.2f}-{float(r['end_s']):.2f}s: {r['summary']}" for r in rows]
     summary = " | ".join(parts)
     return summary[:1200] + ("…" if len(summary) > 1200 else "")
 

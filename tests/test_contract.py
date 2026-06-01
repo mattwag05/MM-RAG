@@ -92,7 +92,9 @@ class TestSearch:
 
     def test_hit_shape(self) -> None:
         out = SearchOutput(
-            hits=[SearchHit(asset_id="a", content_item_id="doc:a:t0", start_s=0, end_s=1, score=0.9)]
+            hits=[
+                SearchHit(asset_id="a", content_item_id="doc:a:t0", start_s=0, end_s=1, score=0.9)
+            ]
         )
         assert out.hits[0].score == 0.9
         assert out.hits[0].content_item_id == "doc:a:t0"

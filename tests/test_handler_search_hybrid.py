@@ -203,12 +203,12 @@ async def test_asset_scoped_vector_search_filters_inside_knn(tmp_path, monkeypat
                     (asset_id, scene_id),
                 )
 
-            frame_a = conn.execute(
-                "SELECT id FROM frames WHERE asset_id=?", (asset_a,)
-            ).fetchone()["id"]
-            frame_b = conn.execute(
-                "SELECT id FROM frames WHERE asset_id=?", (asset_b,)
-            ).fetchone()["id"]
+            frame_a = conn.execute("SELECT id FROM frames WHERE asset_id=?", (asset_a,)).fetchone()[
+                "id"
+            ]
+            frame_b = conn.execute("SELECT id FROM frames WHERE asset_id=?", (asset_b,)).fetchone()[
+                "id"
+            ]
 
         query = [0.0] * 768
         query[0] = 1.0

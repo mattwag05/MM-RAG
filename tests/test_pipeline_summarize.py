@@ -66,6 +66,4 @@ async def test_summarize_marks_empty_scenes_without_inference() -> None:
         frames=[],
     )
 
-    assert out["summaries"] == [
-        {"scene_idx": 0, "summary": "No transcript or OCR text detected."}
-    ]
+    assert out["summaries"] == [{"scene_idx": 0, "summary": "No transcript or OCR text detected."}]

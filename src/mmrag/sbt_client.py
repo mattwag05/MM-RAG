@@ -11,7 +11,9 @@ class SBTClientError(RuntimeError):
 
 
 async def push_to_sbt(base_url: str, payload: dict) -> dict:
-    return await asyncio.to_thread(_post_json, base_url.rstrip("/") + "/api/ingest/multimodal", payload)
+    return await asyncio.to_thread(
+        _post_json, base_url.rstrip("/") + "/api/ingest/multimodal", payload
+    )
 
 
 def _post_json(url: str, payload: dict) -> dict:

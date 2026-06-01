@@ -95,6 +95,60 @@ async def test_run_pipeline_claims_job_once_for_concurrent_runners(
     assert status.error is None
 
 
+@pytest.mark.asyncio
+async def test_run_pipeline_resume_skips_last_completed_stage(
+    isolated_data_dir, monkeypatch
+) -> None:
+    job_id = "job-resume"
+    _insert_job(job_id, stage=Stage.TRANSCRIBE.value)
+    calls: list[Stage] = []
+
+    async def fake_run_stage(stage, state, mode):  # noqa: ANN001
+        calls.append(stage)
+        return {}
+
+    monkeypatch.setattr(
+        runner,
+        "M1_STAGE_ORDER",
+        (Stage.FETCH, Stage.NORMALIZE, Stage.TRANSCRIBE, Stage.FRAME_SAMPLE),
+    )
+    monkeypatch.setattr(runner, "_run_stage", fake_run_stage)
+
+    await runner.run_pipeline(job_id)
+
+    assert calls == [Stage.FRAME_SAMPLE]
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_cancel_requeues_active_job(isolated_data_dir, monkeypatch) -> None:
+    job_id = "job-cancel"
+    _insert_job(job_id)
+    started = asyncio.Event()
+
+    async def fake_run_stage(stage, state, mode):  # noqa: ANN001
+        started.set()
+        await asyncio.Event().wait()
+        return {}
+
+    monkeypatch.setattr(runner, "M1_STAGE_ORDER", (Stage.FETCH,))
+    monkeypatch.setattr(runner, "_run_stage", fake_run_stage)
+
+    task = asyncio.create_task(runner.run_pipeline(job_id))
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT status, runner_id, runner_heartbeat_at FROM jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+
+    assert row["status"] == "queued"
+    assert row["runner_id"] is None
+    assert row["runner_heartbeat_at"] is None
+
+
 def test_worker_claim_pending_skips_fresh_running_jobs(isolated_data_dir) -> None:
     _insert_job("queued-job")
     _insert_job(

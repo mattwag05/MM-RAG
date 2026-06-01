@@ -10,9 +10,7 @@ from mmrag.pipeline import runner
 
 
 @pytest.mark.asyncio
-async def test_push_to_sbt_builds_enrichment_payload(
-    isolated_data_dir: Path, monkeypatch
-) -> None:
+async def test_push_to_sbt_builds_enrichment_payload(isolated_data_dir: Path, monkeypatch) -> None:
     reset_settings_for_tests(Settings(data_dir=isolated_data_dir, sbt_url="http://sbt.test"))
     asset_id = "asset-sbt"
     with connect() as conn, transaction(conn):

@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from mmrag.config import Settings, reset_settings_for_tests
 from mmrag.db.connection import connect
+from mmrag.db.content_items import replace_content_items_for_asset
 from mmrag.handlers.search import handle_search
+from mmrag.models.content_item import ContentItem
 from mmrag.models.mcp_io import SearchInput
 from mmrag.pipeline.runner import _persist_scenes, _persist_segments
 
@@ -49,6 +52,39 @@ def _seed_asset_with_segments(asset_id: str, content_hash: str) -> None:
                 "text": "gemma four answers questions",
                 "scene_idx": 1,
             },
+        ],
+    )
+
+
+def _seed_asset_with_content_items(asset_id: str, content_hash: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO assets (id, content_hash, source_kind) VALUES (?, ?, 'file')",
+            (asset_id, content_hash),
+        )
+    replace_content_items_for_asset(
+        asset_id,
+        [
+            ContentItem(
+                id=f"{asset_id}:early",
+                type="text",
+                source_id=asset_id,
+                chunk_idx=0,
+                asset_id=asset_id,
+                start_s=0.0,
+                end_s=1.0,
+                text="needle early",
+            ),
+            ContentItem(
+                id=f"{asset_id}:late",
+                type="text",
+                source_id=asset_id,
+                chunk_idx=1,
+                asset_id=asset_id,
+                start_s=10.0,
+                end_s=11.0,
+                text="needle late",
+            ),
         ],
     )
 
@@ -108,6 +144,53 @@ async def test_fts_search_applies_time_range_before_top_k(isolated_data_dir: Pat
     assert len(out.hits) == 1
     assert out.hits[0].start_s == pytest.approx(3.1)
     assert out.hits[0].end_s == pytest.approx(4.0)
+
+
+@pytest.mark.asyncio
+async def test_fts_search_filters_content_items_by_time_range(isolated_data_dir: Path) -> None:
+    _seed_asset_with_content_items("content-time", "content-time-hash")
+
+    out = await handle_search(
+        SearchInput(query="needle", mode="fts", top_k=5, time_range=(9.0, 12.0))
+    )
+
+    assert [hit.content_item_id for hit in out.hits] == ["content-time:late"]
+
+
+@pytest.mark.asyncio
+async def test_hybrid_graph_expansion_filters_content_items_by_time_range(
+    isolated_data_dir: Path,
+) -> None:
+    _seed_asset_with_content_items("graph-time", "graph-time-hash")
+
+    out = await handle_search(
+        SearchInput(query="early", mode="hybrid_graph", top_k=2, time_range=(0.0, 1.0))
+    )
+
+    assert [hit.content_item_id for hit in out.hits] == ["graph-time:early"]
+    assert all(hit.source_stream != "graph" for hit in out.hits)
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_can_skip_query_vector_encoding(
+    isolated_data_dir: Path, monkeypatch
+) -> None:
+    _seed_asset_with_segments("a1", "h1")
+    reset_settings_for_tests(Settings(data_dir=isolated_data_dir, query_vector_enabled=False))
+    called = False
+
+    async def fake_encode_query_text(query: str) -> list[float]:
+        nonlocal called
+        called = True
+        return [0.0]
+
+    monkeypatch.setattr("mmrag.handlers.search._encode_query_text", fake_encode_query_text)
+
+    out = await handle_search(SearchInput(query="multimodal", mode="hybrid"))
+
+    assert not called
+    assert len(out.hits) == 1
+    assert out.hits[0].asset_id == "a1"
 
 
 @pytest.mark.asyncio

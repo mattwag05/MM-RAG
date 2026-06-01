@@ -29,7 +29,9 @@ def _edge_id(source: str, target: str, edge_type: str) -> str:
     return f"edge:{h}"
 
 
-def _insert_node(conn, node_id: str, node_type: str, asset_id: str | None, label: str, metadata=None) -> None:
+def _insert_node(
+    conn, node_id: str, node_type: str, asset_id: str | None, label: str, metadata=None
+) -> None:
     conn.execute(
         """
         INSERT INTO nodes(id, node_type, asset_id, label, metadata_json)
@@ -44,7 +46,9 @@ def _insert_node(conn, node_id: str, node_type: str, asset_id: str | None, label
     )
 
 
-def _insert_edge(conn, source: str, target: str, edge_type: str, weight: float = 1.0, metadata=None) -> None:
+def _insert_edge(
+    conn, source: str, target: str, edge_type: str, weight: float = 1.0, metadata=None
+) -> None:
     conn.execute(
         """
         INSERT INTO edges(id, source_node_id, target_node_id, edge_type, weight, metadata_json)
@@ -53,7 +57,14 @@ def _insert_edge(conn, source: str, target: str, edge_type: str, weight: float =
             weight = excluded.weight,
             metadata_json = excluded.metadata_json
         """,
-        (_edge_id(source, target, edge_type), source, target, edge_type, weight, json.dumps(metadata or {})),
+        (
+            _edge_id(source, target, edge_type),
+            source,
+            target,
+            edge_type,
+            weight,
+            json.dumps(metadata or {}),
+        ),
     )
 
 
@@ -85,7 +96,9 @@ def rebuild_graph_for_asset(asset_id: str) -> None:
             )
         conn.execute("DELETE FROM nodes WHERE asset_id = ?", (asset_id,))
 
-        asset = conn.execute("SELECT id, title, source_url FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        asset = conn.execute(
+            "SELECT id, title, source_url FROM assets WHERE id = ?", (asset_id,)
+        ).fetchone()
         if asset is None:
             return
         asset_node = f"asset:{asset_id}"
@@ -134,14 +147,22 @@ def rebuild_graph_for_asset(asset_id: str) -> None:
                 _insert_edge(conn, item_node, prev_item_node, "adjacent", 0.7)
             prev_item_node = item_node
 
-            for term in _topic_terms(" ".join(part for part in (row["text"], row["caption"]) if part)):
+            for term in _topic_terms(
+                " ".join(part for part in (row["text"], row["caption"]) if part)
+            ):
                 topic_node = f"topic:{asset_id}:{term}"
                 _insert_node(conn, topic_node, "topic", asset_id, term)
                 _insert_edge(conn, item_node, topic_node, "mentions", 0.5)
                 _insert_edge(conn, topic_node, item_node, "mentioned_by", 0.5)
 
 
-def expand_search_hits(hits: list[SearchHit], *, top_k: int, asset_id: str | None = None) -> list[SearchHit]:
+def expand_search_hits(
+    hits: list[SearchHit],
+    *,
+    top_k: int,
+    asset_id: str | None = None,
+    time_range: tuple[float, float] | None = None,
+) -> list[SearchHit]:
     seeds = []
     for hit in hits:
         if hit.content_item_id:
@@ -164,12 +185,14 @@ def expand_search_hits(hits: list[SearchHit], *, top_k: int, asset_id: str | Non
     if asset_id is not None:
         sql += " AND ci.asset_id = ?"
         params.append(asset_id)
+    if time_range is not None:
+        sql += " AND ci.end_s >= ? AND ci.start_s <= ?"
+        params.extend([time_range[0], time_range[1]])
     sql += " ORDER BY e.weight DESC, ci.chunk_idx LIMIT ?"
     params.append(top_k)
 
     existing_keys = {
-        (hit.asset_id, hit.content_item_id, hit.scene_id, hit.frame_id)
-        for hit in hits
+        (hit.asset_id, hit.content_item_id, hit.scene_id, hit.frame_id) for hit in hits
     }
     out: list[SearchHit] = []
     with connect() as conn:

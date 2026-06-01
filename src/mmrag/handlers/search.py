@@ -237,7 +237,12 @@ def _vec_transcript_stream(
     ]
 
 
-def _content_items_hits(query: str, asset_id: str | None, top_k: int) -> list[SearchHit]:
+def _content_items_hits(
+    query: str,
+    asset_id: str | None,
+    time_range: tuple[float, float] | None,
+    top_k: int,
+) -> list[SearchHit]:
     fts_query = _fts_query(query)
     if fts_query is None:
         return []
@@ -254,6 +259,9 @@ def _content_items_hits(query: str, asset_id: str | None, top_k: int) -> list[Se
     if asset_id is not None:
         sql += " AND f.asset_id = ?"
         params.append(asset_id)
+    if time_range is not None:
+        sql += _time_overlap_clause("ci")
+        _append_time_params(params, time_range)
     sql += " ORDER BY score DESC LIMIT ?"
     params.append(top_k)
     with connect() as conn:
@@ -328,12 +336,13 @@ def _rrf_fuse(
 async def handle_search(inp: SearchInput) -> SearchOutput:
     streams: list[list[_StreamHit]] = []
     base_mode = "hybrid" if inp.mode == "hybrid_graph" else inp.mode
+    vector_enabled = get_settings().query_vector_enabled
 
     if base_mode in ("fts", "hybrid"):
         streams.append(_fts_transcript_stream(inp.query, inp.asset_id, inp.time_range))
         streams.append(_fts_scenes_stream(inp.query, inp.asset_id, inp.time_range))
 
-    if base_mode in ("vector", "hybrid"):
+    if base_mode in ("vector", "hybrid") and vector_enabled:
         try:
             qvec = await _encode_query_text(inp.query)
         except Exception as e:  # noqa: BLE001
@@ -342,9 +351,11 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         if qvec:
             streams.append(_vec_frames_stream(qvec, inp.asset_id, inp.time_range))
             streams.append(_vec_transcript_stream(qvec, inp.asset_id, inp.time_range))
+    elif base_mode in ("vector", "hybrid"):
+        log.info("query_vector.disabled", mode=inp.mode)
 
     content_hits = (
-        _content_items_hits(inp.query, inp.asset_id, inp.top_k)
+        _content_items_hits(inp.query, inp.asset_id, inp.time_range, inp.top_k)
         if base_mode in ("fts", "hybrid")
         else []
     )
@@ -376,22 +387,24 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         ordered = sorted(flat.values(), key=lambda h: h.score, reverse=True)[: inp.top_k]
         scene_meta = _scene_timing([h.scene_id for h in ordered])
         scene_hits = [
-                SearchHit(
-                    asset_id=scene_meta[h.scene_id][0],
-                    scene_id=str(h.scene_id),
-                    frame_id=str(h.frame_id) if h.frame_id is not None else None,
-                    # Use segment-level timestamps when available (fts_transcript),
-                    # fall back to scene-level (fts_scenes).
-                    start_s=h.start_s if h.start_s is not None else scene_meta[h.scene_id][1],
-                    end_s=h.end_s if h.end_s is not None else scene_meta[h.scene_id][2],
-                    score=h.score,
-                    snippet=h.snippet,
-                    source_stream=h.source,
-                )
-                for h in ordered
-                if h.scene_id in scene_meta
-            ]
-        hits = sorted([*scene_hits, *content_hits], key=lambda h: h.score, reverse=True)[: inp.top_k]
+            SearchHit(
+                asset_id=scene_meta[h.scene_id][0],
+                scene_id=str(h.scene_id),
+                frame_id=str(h.frame_id) if h.frame_id is not None else None,
+                # Use segment-level timestamps when available (fts_transcript),
+                # fall back to scene-level (fts_scenes).
+                start_s=h.start_s if h.start_s is not None else scene_meta[h.scene_id][1],
+                end_s=h.end_s if h.end_s is not None else scene_meta[h.scene_id][2],
+                score=h.score,
+                snippet=h.snippet,
+                source_stream=h.source,
+            )
+            for h in ordered
+            if h.scene_id in scene_meta
+        ]
+        hits = sorted([*scene_hits, *content_hits], key=lambda h: h.score, reverse=True)[
+            : inp.top_k
+        ]
         if inp.mode == "hybrid_graph":
             hits = _with_graph_expansion(hits, inp)
         return SearchOutput(hits=hits)
@@ -406,38 +419,38 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         ordered_v = sorted(flat_v.values(), key=lambda h: h.score, reverse=True)[: inp.top_k]
         scene_meta = _scene_timing([h.scene_id for h in ordered_v])
         hits = [
-                SearchHit(
-                    asset_id=scene_meta[h.scene_id][0],
-                    scene_id=str(h.scene_id),
-                    frame_id=str(h.frame_id) if h.frame_id is not None else None,
-                    start_s=scene_meta[h.scene_id][1],
-                    end_s=scene_meta[h.scene_id][2],
-                    score=h.score,
-                    snippet=h.snippet or "[visual match]",
-                    source_stream=h.source,
-                )
-                for h in ordered_v
-                if h.scene_id in scene_meta
-            ]
+            SearchHit(
+                asset_id=scene_meta[h.scene_id][0],
+                scene_id=str(h.scene_id),
+                frame_id=str(h.frame_id) if h.frame_id is not None else None,
+                start_s=scene_meta[h.scene_id][1],
+                end_s=scene_meta[h.scene_id][2],
+                score=h.score,
+                snippet=h.snippet or "[visual match]",
+                source_stream=h.source,
+            )
+            for h in ordered_v
+            if h.scene_id in scene_meta
+        ]
         return SearchOutput(hits=hits)
 
     # hybrid: RRF fusion over all streams
     fused = _rrf_fuse(streams, inp.top_k)
     scene_meta = _scene_timing([sid for sid, _, _, _, _ in fused])
     hits = [
-            SearchHit(
-                asset_id=scene_meta[sid][0],
-                scene_id=str(sid),
-                frame_id=str(frame_id) if frame_id is not None else None,
-                start_s=scene_meta[sid][1],
-                end_s=scene_meta[sid][2],
-                score=score,
-                snippet=snippet or "[visual match]",
-                source_stream=source,
-            )
-            for sid, score, snippet, source, frame_id in fused
-            if sid in scene_meta
-        ]
+        SearchHit(
+            asset_id=scene_meta[sid][0],
+            scene_id=str(sid),
+            frame_id=str(frame_id) if frame_id is not None else None,
+            start_s=scene_meta[sid][1],
+            end_s=scene_meta[sid][2],
+            score=score,
+            snippet=snippet or "[visual match]",
+            source_stream=source,
+        )
+        for sid, score, snippet, source, frame_id in fused
+        if sid in scene_meta
+    ]
     hits = [*hits, *content_hits]
     hits = sorted(hits, key=lambda h: h.score, reverse=True)[: inp.top_k]
     if inp.mode == "hybrid_graph":
@@ -448,7 +461,12 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
 def _with_graph_expansion(hits: list[SearchHit], inp: SearchInput) -> list[SearchHit]:
     if not get_settings().graph_enabled:
         return hits
-    expanded = expand_search_hits(hits, top_k=max(inp.top_k - len(hits), inp.top_k), asset_id=inp.asset_id)
+    expanded = expand_search_hits(
+        hits,
+        top_k=max(inp.top_k - len(hits), inp.top_k),
+        asset_id=inp.asset_id,
+        time_range=inp.time_range,
+    )
     merged: list[SearchHit] = []
     seen: set[tuple[str, str | None, str | None, str | None]] = set()
     for hit in [*hits, *expanded]:

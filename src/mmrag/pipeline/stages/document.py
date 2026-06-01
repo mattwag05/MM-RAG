@@ -123,11 +123,15 @@ async def ingest_document(*, raw_path: str, asset_id: str) -> dict:
     elif suffix in {".html", ".htm"}:
         items = _text_items(_html_text(path), path, asset_id, "html")
     elif suffix in {".md", ".markdown"}:
-        items = _text_items(path.read_text(encoding="utf-8", errors="ignore"), path, asset_id, "markdown")
+        items = _text_items(
+            path.read_text(encoding="utf-8", errors="ignore"), path, asset_id, "markdown"
+        )
     elif suffix == ".docx":
         items = _text_items(_docx_text(path), path, asset_id, "docx")
     else:
-        items = _text_items(path.read_text(encoding="utf-8", errors="ignore"), path, asset_id, "text")
+        items = _text_items(
+            path.read_text(encoding="utf-8", errors="ignore"), path, asset_id, "text"
+        )
     return {
         "document_items": [item.__dict__ for item in items],
         "document_item_count": len(items),

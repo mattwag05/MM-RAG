@@ -102,3 +102,9 @@ def test_mcp_ask_tool_exposes_time_range_parameter():
     server = create_mcp_server()
     ask_tool = server._tool_manager._tools["ask"]
     assert "time_range" in ask_tool.parameters["properties"]
+
+
+def test_mcp_search_tool_exposes_time_range_parameter():
+    server = create_mcp_server()
+    search_tool = server._tool_manager._tools["search"]
+    assert "time_range" in search_tool.parameters["properties"]

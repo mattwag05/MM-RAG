@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import struct
 import uuid
@@ -129,6 +130,23 @@ def _record_error(job_id: str, kind: str, message: str) -> None:
              WHERE id = ?
             """,
             (kind, message[:2000], job_id),
+        )
+
+
+def _release_job(job_id: str, runner_id: str) -> None:
+    with connect() as conn, transaction(conn):
+        conn.execute(
+            """
+            UPDATE jobs
+               SET status = 'queued',
+                   runner_id = NULL,
+                   runner_heartbeat_at = NULL,
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?
+               AND runner_id = ?
+               AND status = 'running'
+            """,
+            (job_id, runner_id),
         )
 
 
@@ -591,7 +609,12 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
         return await ocr(frames=state.get("frames", []))
     if stage is Stage.EMBED:
         if state.get("is_document"):
-            return {"frame_vectors": [], "scene_vectors": [], "segment_vectors": [], "vectors_written": 0}
+            return {
+                "frame_vectors": [],
+                "scene_vectors": [],
+                "segment_vectors": [],
+                "vectors_written": 0,
+            }
         return await embed(
             scenes=state.get("scenes", []),
             frames=state.get("frames", []),
@@ -624,6 +647,9 @@ async def run_pipeline(job_id: str) -> None:
     state.setdefault("source", row["source"])
     state["__job_id"] = job_id
     completed_stage = Stage(row["stage"]) if row["stage"] else Stage.QUEUED
+    completed_idx = (
+        M1_STAGE_ORDER.index(completed_stage) if completed_stage in M1_STAGE_ORDER else -1
+    )
     mode = row["mode"] or "standard"
     push_to_sbt = bool(row["push_to_sbt"])
 
@@ -632,11 +658,7 @@ async def run_pipeline(job_id: str) -> None:
         for idx, stage in enumerate(M1_STAGE_ORDER):
             _refresh_lease(job_id, runner_id)
             # Resume past completed stages.
-            already_completed = (
-                completed_stage != Stage.QUEUED
-                and M1_STAGE_ORDER.index(completed_stage) >= idx
-                and completed_stage != stage
-            )
+            already_completed = completed_idx >= idx
             if already_completed:
                 continue
 
@@ -650,19 +672,29 @@ async def run_pipeline(job_id: str) -> None:
                 if state.get("is_document"):
                     items = [ContentItem(**item) for item in state.get("document_items", [])]
                     replace_content_items_for_asset(state["asset_id"], items)
-            elif stage is Stage.SCENE_DETECT and state.get("asset_id") and not state.get("is_document"):
+            elif (
+                stage is Stage.SCENE_DETECT
+                and state.get("asset_id")
+                and not state.get("is_document")
+            ):
                 _persist_scenes(
                     asset_id=state["asset_id"],
                     scenes=state.get("scenes", []),
                 )
                 rewrite_content_items_for_asset(state["asset_id"])
-            elif stage is Stage.TRANSCRIBE and state.get("asset_id") and not state.get("is_document"):
+            elif (
+                stage is Stage.TRANSCRIBE and state.get("asset_id") and not state.get("is_document")
+            ):
                 _persist_segments(
                     asset_id=state["asset_id"],
                     segments=state.get("segments", []),
                 )
                 rewrite_content_items_for_asset(state["asset_id"])
-            elif stage is Stage.FRAME_SAMPLE and state.get("asset_id") and not state.get("is_document"):
+            elif (
+                stage is Stage.FRAME_SAMPLE
+                and state.get("asset_id")
+                and not state.get("is_document")
+            ):
                 scene_id_by_idx = _scene_id_by_idx(state["asset_id"])
                 frame_id_map = _persist_frames(
                     asset_id=state["asset_id"],
@@ -708,7 +740,9 @@ async def run_pipeline(job_id: str) -> None:
                     scene_vectors=state.get("scene_vectors", []),
                     segment_vectors=state.get("segment_vectors", []),
                 )
-            elif stage is Stage.SUMMARIZE and state.get("asset_id") and not state.get("is_document"):
+            elif (
+                stage is Stage.SUMMARIZE and state.get("asset_id") and not state.get("is_document")
+            ):
                 _persist_scene_summaries(
                     asset_id=state["asset_id"],
                     summaries=state.get("summaries", []),
@@ -738,6 +772,10 @@ async def run_pipeline(job_id: str) -> None:
     except DocumentIngestError as e:
         log.warning("document.error", job_id=job_id, kind=e.kind, error=str(e))
         _record_error(job_id, e.kind, str(e))
+    except asyncio.CancelledError:
+        log.info("pipeline.cancelled", job_id=job_id)
+        _release_job(job_id, runner_id)
+        raise
     except Exception as e:  # noqa: BLE001 — terminal job error path
         log.exception("pipeline.error", job_id=job_id)
         _record_error(job_id, "unknown", f"{type(e).__name__}: {e}")

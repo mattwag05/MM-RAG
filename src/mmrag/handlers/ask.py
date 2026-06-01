@@ -28,7 +28,9 @@ def _scene_summaries(scene_ids: list[str | None]) -> dict[str, str]:
 
 def _hit_to_evidence(hit, summaries: dict[str, str]) -> Evidence:
     snippet = hit.snippet if hit.snippet != "[visual match]" else None
-    transcript_snippet = snippet if hit.source_stream in {"fts_transcript", "vec_transcript"} else None
+    transcript_snippet = (
+        snippet if hit.source_stream in {"fts_transcript", "vec_transcript"} else None
+    )
     ocr_snippet = snippet if hit.source_stream in {"fts_scenes", "vec_frames"} else None
     return Evidence(
         asset_id=hit.asset_id,
@@ -46,7 +48,9 @@ def _hit_to_evidence(hit, summaries: dict[str, str]) -> Evidence:
     )
 
 
-def _filter_time_range(evidence: list[Evidence], time_range: tuple[float, float] | None) -> list[Evidence]:
+def _filter_time_range(
+    evidence: list[Evidence], time_range: tuple[float, float] | None
+) -> list[Evidence]:
     if time_range is None:
         return evidence
     start, end = time_range
