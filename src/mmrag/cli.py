@@ -55,6 +55,24 @@ def serve_mcp() -> None:
     run_stdio()
 
 
+@app.command("serve-mcp-http")
+def serve_mcp_http(
+    host: str | None = typer.Option(None, help="Override MMRAG_MCP_HOST"),
+    port: int | None = typer.Option(None, help="Override MMRAG_MCP_PORT"),
+    path: str | None = typer.Option(None, help="Override MMRAG_MCP_PATH"),
+    public_url: str | None = typer.Option(None, help="Override MMRAG_MCP_PUBLIC_URL"),
+) -> None:
+    """Run the MCP server over Streamable HTTP."""
+    from mmrag.mcp_server import run_streamable_http
+
+    settings = get_settings()
+    settings.ensure_dirs()
+    try:
+        run_streamable_http(host=host, port=port, path=path, public_url=public_url)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
 @app.command("worker")
 def worker() -> None:
     """Drain the job queue continuously."""
