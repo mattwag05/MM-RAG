@@ -69,6 +69,12 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 - If a required sync or push is blocked, stop and report the exact command and error.
 <!-- END BEADS INTEGRATION -->
 
+> **Beads sync — `bd dolt push` is separate from `git push`.** Issues live in a
+> local Dolt DB and travel on the `refs/dolt/data` git ref, which a plain
+> `git clone` does NOT fetch. Always `bd dolt push` at session close (not just
+> `git push`); hydrate a fresh clone with `bd dolt pull`. The project's original
+> issue history was lost this way before the M5 machine transition.
+
 ## Status (v0.1.0 — M3 visual pipeline)
 
 What's wired end-to-end today:
@@ -122,6 +128,10 @@ make serve-mcp                            # FastMCP over stdio
 make worker                               # drain the job queue
 make test                                 # full test suite (61 tests)
 ```
+
+In a **sandboxed shell** (e.g. Claude Code's Bash), `make test`'s OCR tests fail
+because the `tesseract` subprocess can't read the sandbox `TMPDIR` — run
+`TMPDIR=~/.cache/mmrag-pytest-tmp make test` (see Gotchas).
 
 ## Where things live
 
