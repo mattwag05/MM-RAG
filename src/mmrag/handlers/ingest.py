@@ -48,9 +48,26 @@ def _read_job(job_id: str) -> dict | None:
 def _read_summary(asset_id: str | None) -> str | None:
     if asset_id is None:
         return None
-    # M1 has no scene summaries yet — that lands in M4. Return None
-    # explicitly so the response shape stays correct.
-    return None
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT start_s, end_s, summary
+              FROM scenes
+             WHERE asset_id = ?
+               AND summary IS NOT NULL
+               AND summary <> ''
+             ORDER BY scene_idx
+             LIMIT 5
+            """,
+            (asset_id,),
+        ).fetchall()
+    if not rows:
+        return None
+    parts = [
+        f"{float(r['start_s']):.2f}-{float(r['end_s']):.2f}s: {r['summary']}" for r in rows
+    ]
+    summary = " | ".join(parts)
+    return summary[:1200] + ("…" if len(summary) > 1200 else "")
 
 
 async def handle_ingest(inp: IngestInput) -> IngestOutput:

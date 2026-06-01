@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+from mmrag.db.connection import connect
 from mmrag.handlers.ask import handle_ask
 from mmrag.models.mcp_io import AskInput, SearchHit, SearchOutput
 
 
-async def test_ask_returns_evidence_only_by_default(monkeypatch):
+async def test_ask_returns_evidence_only_by_default(monkeypatch, isolated_data_dir):
     from mmrag.handlers import search as search_mod
+
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO assets(id, content_hash, source_kind, metadata_json) "
+            "VALUES ('asset-1', 'ask-summary-hash', 'file', '{}')"
+        )
+        conn.execute(
+            """
+            INSERT INTO scenes(id, asset_id, scene_idx, start_s, end_s, summary)
+            VALUES (10, 'asset-1', 0, 1.0, 2.0, 'Spoken: hello from the transcript')
+            """
+        )
 
     async def fake_search(_inp):
         return SearchOutput(
@@ -31,10 +44,11 @@ async def test_ask_returns_evidence_only_by_default(monkeypatch):
     assert out.evidence[0].asset_id == "asset-1"
     assert out.evidence[0].source_stream == "fts_transcript"
     assert out.evidence[0].score == 0.25
+    assert out.evidence[0].summary == "Spoken: hello from the transcript"
     assert out.evidence[0].transcript_snippet == "hello from the transcript"
 
 
-async def test_ask_synthesizes_only_when_requested(monkeypatch):
+async def test_ask_synthesizes_only_when_requested(monkeypatch, isolated_data_dir):
     from mmrag.handlers import ask as ask_mod
     from mmrag.handlers import search as search_mod
 

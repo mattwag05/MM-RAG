@@ -14,7 +14,8 @@ multimodal model only sees the few seconds that actually matter.
 
 > **Status: v0.1.0 (M6 Pi deploy path shipped).**
 > Stages 1–7 wired end-to-end: fetch → normalize → scene_detect → transcribe
-> → frame_sample → ocr → embed. `ask` is evidence-first by default, with
+> → frame_sample → ocr → embed, with deterministic scene summaries at stage 8.
+> `ask` is evidence-first by default, with
 > request-time synthesis opt-in. Streamable HTTP MCP is the shared tailnet
 > transport. See the [roadmap](#roadmap).
 
@@ -64,6 +65,8 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
 - ✅ `ask(...)` returns rich evidence packs by default (`answer=null`) and can
   synthesize through Ollama/Gemma when `synthesize=true`
+- ✅ Stage 8 writes deterministic per-scene summaries to `scenes.summary` and
+  the `content_items` projection
 - ✅ `search(...)` supports three modes: `fts` (BM25 over transcript + OCR),
   `vector` (SigLIP cosine over frame/transcript embeddings), and `hybrid`
   (RRF fusion across all four streams).
@@ -254,7 +257,7 @@ admin/debug workflows.
                 │ 5. frame_sample (scene midpoint+1fps)   [M3]        │
                 │ 6. ocr          (Tesseract)             [M3]        │
                 │ 7. embed        (SigLIP image+text)     [M3]        │
-                │ 8. summarize    (stub; scene summaries follow-up)    │
+                │ 8. summarize    (deterministic scene summaries)      │
                 └────────────────┬───────────────────────────────────┘
                                  │
                         ┌────────▼─────────┐
@@ -371,7 +374,7 @@ independently testable; the project pauses for review between them.
 | **M1** | ✅ | Walking skeleton: project layout, `uv` + Python 3.13, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
 | **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
-| **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, and `content_items` projects scenes/segments/frames into a unified foundation. |
+| **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
 | **M6** | ✅ | Raspberry Pi / homelab-host deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
 | M7 | 🧱 | Social Bookmarks Triage REST integration as a reference consumer |
@@ -436,7 +439,7 @@ MM-RAG/
     │       ├── frame_sample.py    # M3 — scene midpoints + stride sampling
     │       ├── ocr.py             # M3 — Tesseract PSM 6
     │       ├── embed.py           # M3 — SigLIP-base-patch16-256 (768-d)
-    │       └── summarize.py       # scene-summary follow-up
+    │       └── summarize.py       # deterministic per-scene summaries
     └── providers/
         ├── base.py            # ModelProvider ABC
         └── ollama.py          # request-time Ollama chat provider

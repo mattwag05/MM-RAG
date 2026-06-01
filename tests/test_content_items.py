@@ -7,7 +7,12 @@ import pytest
 
 from mmrag.db.connection import connect
 from mmrag.db.content_items import rewrite_content_items_for_asset
-from mmrag.pipeline.runner import _persist_frames, _persist_scenes, _persist_segments
+from mmrag.pipeline.runner import (
+    _persist_frames,
+    _persist_scene_summaries,
+    _persist_scenes,
+    _persist_segments,
+)
 
 pytestmark = pytest.mark.m3_visual
 
@@ -49,6 +54,10 @@ def test_rewrite_content_items_projects_current_pipeline_tables(isolated_data_di
             }
         ],
     )
+    _persist_scene_summaries(
+        asset_id=asset_id,
+        summaries=[{"scene_idx": 0, "summary": "Spoken: hello Visible text: visible text"}],
+    )
 
     count = rewrite_content_items_for_asset(asset_id)
 
@@ -65,4 +74,4 @@ def test_rewrite_content_items_projects_current_pipeline_tables(isolated_data_di
     assert by_type["image"]["text"] == "visible text"
     assert by_type["image"]["file_path"] == "/tmp/frame.jpg"
     assert json.loads(by_type["image"]["metadata_json"]) == {"width": 320, "height": 240}
-    assert by_type["video_segment"]["text"] is None
+    assert by_type["video_segment"]["text"] == "Spoken: hello Visible text: visible text"

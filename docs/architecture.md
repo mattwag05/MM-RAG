@@ -194,10 +194,9 @@ the full rationale behind the current milestone ordering.
   pipeline" to make `ask` evidence-only by default (`answer: str |
   None`, new `synthesize: bool = False` flag), enrich `search` hits
   with evidence metadata, fix sqlite-vec asset scoping with metadata
-  prefilters, and add the `content_items` projection over scenes,
-  transcript segments, and frames. Stage 8 `summarize` remains a
-  deterministic indexing follow-up (per-scene short-text distillation
-  stored in `scenes.summary`).
+  prefilters, add the `content_items` projection over scenes, transcript
+  segments, and frames, and make stage 8 `summarize` write deterministic
+  per-scene short-text distillations to `scenes.summary`.
 - **M5** **(shipped)** brings streamable-HTTP MCP transport for tailnet-hosted
   deployment, shared bearer-token auth, safe loopback defaults, and public
   discovery metadata. Promoted from P3 because the PMF thesis *is* shared

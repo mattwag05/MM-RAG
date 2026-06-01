@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from mmrag.config import get_settings
+from mmrag.db.connection import connect
 from mmrag.logging import get_logger
 from mmrag.models.mcp_io import AskInput, AskOutput, Evidence, SearchInput, SearchOutput
 from mmrag.providers.base import GenerateConfig, Message
@@ -8,7 +9,24 @@ from mmrag.providers.base import GenerateConfig, Message
 log = get_logger("handler.ask")
 
 
-def _hit_to_evidence(hit) -> Evidence:
+def _scene_summaries(scene_ids: list[str | None]) -> dict[str, str]:
+    ids = sorted({int(scene_id) for scene_id in scene_ids if scene_id is not None})
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, summary FROM scenes WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+    return {
+        str(r["id"]): str(r["summary"])
+        for r in rows
+        if r["summary"] is not None and str(r["summary"]).strip()
+    }
+
+
+def _hit_to_evidence(hit, summaries: dict[str, str]) -> Evidence:
     snippet = hit.snippet if hit.snippet != "[visual match]" else None
     transcript_snippet = snippet if hit.source_stream in {"fts_transcript", "vec_transcript"} else None
     ocr_snippet = snippet if hit.source_stream in {"fts_scenes", "vec_frames"} else None
@@ -21,6 +39,7 @@ def _hit_to_evidence(hit) -> Evidence:
         source_stream=hit.source_stream,
         snippet=snippet,
         score=hit.score,
+        summary=summaries.get(hit.scene_id),
         ocr_snippet=ocr_snippet,
         transcript_snippet=transcript_snippet,
     )
@@ -86,7 +105,10 @@ async def handle_ask(inp: AskInput) -> AskOutput:
             mode="hybrid",
         )
     )
-    evidence = _filter_time_range([_hit_to_evidence(hit) for hit in search_out.hits], inp.time_range)
+    summaries = _scene_summaries([hit.scene_id for hit in search_out.hits])
+    evidence = _filter_time_range(
+        [_hit_to_evidence(hit, summaries) for hit in search_out.hits], inp.time_range
+    )
     if not inp.synthesize:
         return AskOutput(answer=None, evidence=evidence, confidence="low")
 
