@@ -67,9 +67,15 @@ which clip in your library is the one where the onboarding modal appears.
   synthesize through Ollama/Gemma when `synthesize=true`
 - ✅ Stage 8 writes deterministic per-scene summaries to `scenes.summary` and
   the `content_items` projection
-- ✅ `search(...)` supports three modes: `fts` (BM25 over transcript + OCR),
-  `vector` (SigLIP cosine over frame/transcript embeddings), and `hybrid`
-  (RRF fusion across all four streams).
+- ✅ `ingest(local_document)` for Markdown, HTML, TXT, DOCX, and PDF text
+  extraction into the same `content_items` retrieval path.
+- ✅ `search(...)` supports `fts`, `vector`, `hybrid`, and `hybrid_graph`
+  modes over transcript, OCR, document content, vectors, and graph neighbors.
+- ✅ Lightweight SQLite graph tables (`nodes`, `edges`) over assets, content
+  items, scenes, frames, segments, and topics.
+- ✅ Optional vector backend protocol with SQLite default and a Qdrant
+  selection hook for homelab experiments.
+- ✅ Optional Social Bookmarks Triage push via `push_to_sbt=true`.
 - ✅ Pi/tailnet Docker Compose path for MCP HTTP + worker, with no bundled
   Ollama/Gemma dependency.
 
@@ -145,13 +151,14 @@ ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
 
 ask(question, asset_id=None, time_range=None, top_k=5,
     model="gemma4:e4b", synthesize=False)
-  → { answer, evidence: [{ asset_id, scene_id, start_s, end_s,
+  → { answer, evidence: [{ asset_id, content_item_id, scene_id, start_s, end_s,
                            source_stream, snippet, score,
                            summary, ocr_snippet, transcript_snippet }],
       confidence }
 
-search(query, asset_id=None, top_k=10, mode="hybrid"|"vector"|"fts")
-  → { hits: [{ asset_id, scene_id, frame_id, start_s, end_s,
+search(query, asset_id=None, top_k=10,
+       mode="hybrid"|"vector"|"fts"|"hybrid_graph")
+  → { hits: [{ asset_id, content_item_id, scene_id, frame_id, start_s, end_s,
                score, snippet, source_stream }] }
 
 status(job_id)
@@ -377,11 +384,12 @@ independently testable; the project pauses for review between them.
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
 | **M6** | ✅ | Raspberry Pi / homelab-host deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
-| M7 | 🧱 | Social Bookmarks Triage REST integration as a reference consumer |
+| **M7** | ✅ | Social Bookmarks Triage REST integration as a reference consumer |
+| **2.x foundation** | ✅ | Document ingestion via `content_items`, graph-aware `hybrid_graph` retrieval, and optional vector backend protocol |
 
-**Deferred to v0.2+** (tracked, not forgotten): speaker diarization,
-PaddleOCR, dedicated video VLM, UI/screen-recording mode with dense frame
-sampling and scene diffing.
+**Deferred** (tracked, not forgotten): speaker diarization, PaddleOCR,
+dedicated video VLM, UI/screen-recording mode with dense frame sampling and
+scene diffing.
 
 ---
 

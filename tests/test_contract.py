@@ -61,6 +61,7 @@ class TestAsk:
             evidence=[
                 Evidence(
                     asset_id="a",
+                    content_item_id="doc:a:t0",
                     start_s=1.0,
                     end_s=2.0,
                     transcript_snippet="hi",
@@ -72,6 +73,7 @@ class TestAsk:
             confidence="medium",
         )
         assert out.answer is None
+        assert out.evidence[0].content_item_id == "doc:a:t0"
         assert out.evidence[0].start_s == 1.0
         assert out.evidence[0].source_stream == "fts_transcript"
 
@@ -81,14 +83,19 @@ class TestSearch:
         inp = SearchInput(query="cats")
         assert inp.mode == "hybrid"
         assert inp.top_k == 10
+        graph = SearchInput(query="cats", mode="hybrid_graph")
+        assert graph.mode == "hybrid_graph"
 
     def test_reversed_time_range_rejected(self) -> None:
         with pytest.raises(ValidationError):
             SearchInput(query="cats", time_range=(5.0, 1.0))
 
     def test_hit_shape(self) -> None:
-        out = SearchOutput(hits=[SearchHit(asset_id="a", start_s=0, end_s=1, score=0.9)])
+        out = SearchOutput(
+            hits=[SearchHit(asset_id="a", content_item_id="doc:a:t0", start_s=0, end_s=1, score=0.9)]
+        )
         assert out.hits[0].score == 0.9
+        assert out.hits[0].content_item_id == "doc:a:t0"
 
 
 class TestStatus:

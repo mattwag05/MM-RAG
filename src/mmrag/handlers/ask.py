@@ -32,6 +32,7 @@ def _hit_to_evidence(hit, summaries: dict[str, str]) -> Evidence:
     ocr_snippet = snippet if hit.source_stream in {"fts_scenes", "vec_frames"} else None
     return Evidence(
         asset_id=hit.asset_id,
+        content_item_id=hit.content_item_id,
         scene_id=hit.scene_id,
         frame_id=hit.frame_id,
         start_s=hit.start_s,
