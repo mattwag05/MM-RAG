@@ -208,20 +208,15 @@ def _scene_timing(scene_ids: list[int]) -> dict[int, tuple[str, float, float]]:
     if not scene_ids:
         return {}
     placeholders = ",".join("?" * len(scene_ids))
-    sql = (
-        f"SELECT id, asset_id, start_s, end_s FROM scenes WHERE id IN ({placeholders})"
-    )
+    sql = f"SELECT id, asset_id, start_s, end_s FROM scenes WHERE id IN ({placeholders})"
     with connect() as conn:
         rows = conn.execute(sql, scene_ids).fetchall()
     return {
-        int(r["id"]): (str(r["asset_id"]), float(r["start_s"]), float(r["end_s"]))
-        for r in rows
+        int(r["id"]): (str(r["asset_id"]), float(r["start_s"]), float(r["end_s"])) for r in rows
     }
 
 
-def _rrf_fuse(
-    streams: list[list[_StreamHit]], top_k: int
-) -> list[tuple[int, float, str | None]]:
+def _rrf_fuse(streams: list[list[_StreamHit]], top_k: int) -> list[tuple[int, float, str | None]]:
     """Return [(scene_id, fused_score, best_snippet), ...] top_k."""
     fused: dict[int, float] = {}
     snippets: dict[int, tuple[float, str | None]] = {}

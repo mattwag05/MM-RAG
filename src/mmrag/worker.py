@@ -17,8 +17,7 @@ def _claim_pending() -> list[str]:
     and the asset upsert dedups it."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id FROM jobs WHERE status IN ('queued','running') "
-            "ORDER BY created_at LIMIT 16"
+            "SELECT id FROM jobs WHERE status IN ('queued','running') ORDER BY created_at LIMIT 16"
         ).fetchall()
     return [r["id"] for r in rows]
 

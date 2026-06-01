@@ -49,10 +49,7 @@ def _run_speech_to_text(audio_path: str) -> list[dict]:
         beam_size=1,
         vad_filter=False,
     )
-    return [
-        {"start": float(s.start), "end": float(s.end), "text": s.text}
-        for s in segs
-    ]
+    return [{"start": float(s.start), "end": float(s.end), "text": s.text} for s in segs]
 
 
 def _assign_scene(start_s: float, scenes: list[dict]) -> int | None:

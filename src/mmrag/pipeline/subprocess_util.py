@@ -15,9 +15,7 @@ class SubprocessTimeout(RuntimeError):
 
 class SubprocessFailed(RuntimeError):
     def __init__(self, argv: list[str], returncode: int, stderr: str):
-        super().__init__(
-            f"{argv[0]} exited {returncode}: {stderr.strip()[:500]}"
-        )
+        super().__init__(f"{argv[0]} exited {returncode}: {stderr.strip()[:500]}")
         self.argv = argv
         self.returncode = returncode
         self.stderr = stderr
@@ -52,9 +50,7 @@ async def run(
         cwd=cwd,
     )
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout_s
-        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
         log.warning("timeout, escalating SIGTERM", argv=argv, pid=proc.pid)
         try:
@@ -67,9 +63,7 @@ async def run(
                 await proc.wait()
         except ProcessLookupError:
             pass
-        raise SubprocessTimeout(
-            f"{argv[0]} exceeded {timeout_s}s timeout"
-        ) from None
+        raise SubprocessTimeout(f"{argv[0]} exceeded {timeout_s}s timeout") from None
 
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")

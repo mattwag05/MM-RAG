@@ -61,6 +61,7 @@ async def test_transcribe_audio_path_missing_returns_empty() -> None:
 async def test_transcribe_with_no_scenes_leaves_scene_idx_none(monkeypatch) -> None:
     """Audio-only assets have no scenes — segments should still emit but
     scene_idx stays None so the DB FK can NULL-out cleanly."""
+
     def fake_stt(audio_path: str) -> list[dict]:
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 

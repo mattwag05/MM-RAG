@@ -53,9 +53,7 @@ class TestAsk:
     def test_evidence_shape(self) -> None:
         out = AskOutput(
             answer="hi",
-            evidence=[
-                Evidence(asset_id="a", start_s=1.0, end_s=2.0, transcript_snippet="hi")
-            ],
+            evidence=[Evidence(asset_id="a", start_s=1.0, end_s=2.0, transcript_snippet="hi")],
             confidence="medium",
         )
         assert out.evidence[0].start_s == 1.0
@@ -68,9 +66,7 @@ class TestSearch:
         assert inp.top_k == 10
 
     def test_hit_shape(self) -> None:
-        out = SearchOutput(
-            hits=[SearchHit(asset_id="a", start_s=0, end_s=1, score=0.9)]
-        )
+        out = SearchOutput(hits=[SearchHit(asset_id="a", start_s=0, end_s=1, score=0.9)])
         assert out.hits[0].score == 0.9
 
 

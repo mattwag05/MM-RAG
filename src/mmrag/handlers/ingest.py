@@ -37,8 +37,7 @@ def _create_job(inp: IngestInput) -> str:
 def _read_job(job_id: str) -> dict | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, asset_id, status, stage, error_kind, error_message "
-            "FROM jobs WHERE id = ?",
+            "SELECT id, asset_id, status, stage, error_kind, error_message FROM jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
     if row is None:

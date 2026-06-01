@@ -25,9 +25,14 @@ pytestmark = pytest.mark.m3_visual
 def _make_colorbars(path: Path) -> None:
     subprocess.run(
         [
-            "ffmpeg", "-y", "-f", "lavfi",
-            "-i", "smptebars=duration=5:size=320x240:rate=1",
-            "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "smptebars=duration=5:size=320x240:rate=1",
+            "-pix_fmt",
+            "yuv420p",
             str(path),
         ],
         check=True,
@@ -44,9 +49,7 @@ async def test_smpte_color_bars_cross_modal_query(tmp_path):
         video_path = tmp_path / "colorbars.mp4"
         _make_colorbars(video_path)
 
-        ingest_result = await handle_ingest(
-            IngestInput(source=str(video_path), wait_ms=120000)
-        )
+        ingest_result = await handle_ingest(IngestInput(source=str(video_path), wait_ms=120000))
         assert ingest_result.status == "done", f"ingest failed: {ingest_result.error}"
         assert ingest_result.asset_id is not None
 

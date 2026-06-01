@@ -29,8 +29,7 @@ def test_persist_scenes_writes_rows(isolated_data_dir: Path) -> None:
     )
     with connect() as conn:
         rows = conn.execute(
-            "SELECT scene_idx, start_s, end_s FROM scenes "
-            "WHERE asset_id = 'a1' ORDER BY scene_idx"
+            "SELECT scene_idx, start_s, end_s FROM scenes WHERE asset_id = 'a1' ORDER BY scene_idx"
         ).fetchall()
     assert len(rows) == 2
     assert rows[0]["scene_idx"] == 0
@@ -48,9 +47,9 @@ def test_persist_scenes_is_idempotent(isolated_data_dir: Path) -> None:
     _persist_scenes(asset_id="a2", scenes=scenes)
     _persist_scenes(asset_id="a2", scenes=scenes)
     with connect() as conn:
-        count = conn.execute(
-            "SELECT COUNT(*) AS c FROM scenes WHERE asset_id = 'a2'"
-        ).fetchone()["c"]
+        count = conn.execute("SELECT COUNT(*) AS c FROM scenes WHERE asset_id = 'a2'").fetchone()[
+            "c"
+        ]
     assert count == 2
 
 

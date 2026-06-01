@@ -56,19 +56,25 @@ def test_persist_frames_and_rewrite_fts_scenes(tmp_path):
 
         frames = [
             {
-                "scene_idx": 0, "frame_idx": 0, "t_s": 1.0,
-                "path": "/tmp/a.jpg", "width": 100, "height": 80,
+                "scene_idx": 0,
+                "frame_idx": 0,
+                "t_s": 1.0,
+                "path": "/tmp/a.jpg",
+                "width": 100,
+                "height": 80,
                 "ocr_text": "red color bars",
             },
             {
-                "scene_idx": 1, "frame_idx": 0, "t_s": 3.0,
-                "path": "/tmp/b.jpg", "width": 100, "height": 80,
+                "scene_idx": 1,
+                "frame_idx": 0,
+                "t_s": 3.0,
+                "path": "/tmp/b.jpg",
+                "width": 100,
+                "height": 80,
                 "ocr_text": "weather map",
             },
         ]
-        frame_id_map = _persist_frames(
-            asset_id=asset_id, scene_id_by_idx=id_by_idx, frames=frames
-        )
+        frame_id_map = _persist_frames(asset_id=asset_id, scene_id_by_idx=id_by_idx, frames=frames)
         assert len(frame_id_map) == 2
 
         _rewrite_fts_scenes(asset_id=asset_id)
@@ -101,11 +107,17 @@ def test_persist_vectors_writes_all_three_vec_tables(tmp_path):
         frame_id_map = _persist_frames(
             asset_id=asset_id,
             scene_id_by_idx=scene_id_by_idx,
-            frames=[{
-                "scene_idx": 0, "frame_idx": 0, "t_s": 0.5,
-                "path": "/tmp/x.jpg", "width": 100, "height": 80,
-                "ocr_text": "",
-            }],
+            frames=[
+                {
+                    "scene_idx": 0,
+                    "frame_idx": 0,
+                    "t_s": 0.5,
+                    "path": "/tmp/x.jpg",
+                    "width": 100,
+                    "height": 80,
+                    "ocr_text": "",
+                }
+            ],
         )
 
         with connect() as conn:
@@ -148,6 +160,7 @@ def test_persist_vectors_writes_all_three_vec_tables(tmp_path):
         with connect() as conn:
             row = conn.execute("SELECT embedding FROM vec_frames").fetchone()
             import struct
+
             decoded = struct.unpack(f"<{len(v_frame)}f", row["embedding"])
             assert abs(decoded[0] - 1.0) < 1e-6
             assert len(decoded) == 768
@@ -179,12 +192,33 @@ def test_frame_id_map_from_db_recomputes_stash(tmp_path):
             asset_id=asset_id,
             scene_id_by_idx=id_by_idx,
             frames=[
-                {"scene_idx": 0, "frame_idx": 0, "t_s": 0.5, "path": "/tmp/a.jpg",
-                 "width": 100, "height": 80, "ocr_text": ""},
-                {"scene_idx": 1, "frame_idx": 0, "t_s": 1.5, "path": "/tmp/b.jpg",
-                 "width": 100, "height": 80, "ocr_text": ""},
-                {"scene_idx": 1, "frame_idx": 1, "t_s": 1.7, "path": "/tmp/c.jpg",
-                 "width": 100, "height": 80, "ocr_text": ""},
+                {
+                    "scene_idx": 0,
+                    "frame_idx": 0,
+                    "t_s": 0.5,
+                    "path": "/tmp/a.jpg",
+                    "width": 100,
+                    "height": 80,
+                    "ocr_text": "",
+                },
+                {
+                    "scene_idx": 1,
+                    "frame_idx": 0,
+                    "t_s": 1.5,
+                    "path": "/tmp/b.jpg",
+                    "width": 100,
+                    "height": 80,
+                    "ocr_text": "",
+                },
+                {
+                    "scene_idx": 1,
+                    "frame_idx": 1,
+                    "t_s": 1.7,
+                    "path": "/tmp/c.jpg",
+                    "width": 100,
+                    "height": 80,
+                    "ocr_text": "",
+                },
             ],
         )
         recomputed = _frame_id_map_from_db(asset_id)

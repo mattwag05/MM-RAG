@@ -37,5 +37,4 @@ class ModelProvider(ABC):
     @abstractmethod
     async def generate(
         self, messages: list[Message], config: GenerateConfig
-    ) -> AsyncIterator[StreamChunk]:
-        ...
+    ) -> AsyncIterator[StreamChunk]: ...

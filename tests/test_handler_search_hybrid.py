@@ -47,9 +47,7 @@ async def test_fts_mode_matches_transcript_text(tmp_path):
                 "VALUES (?, ?, 0, 0.0, 2.0, ?)",
                 (asset_id, scene_id, "the weather today is sunny"),
             )
-        out = await handle_search(
-            SearchInput(query="weather", mode="fts", asset_id=asset_id)
-        )
+        out = await handle_search(SearchInput(query="weather", mode="fts", asset_id=asset_id))
         assert out.hits and out.hits[0].asset_id == asset_id
     finally:
         reset_settings_for_tests(Settings())
@@ -171,6 +169,8 @@ async def test_hybrid_mode_fuses_streams(tmp_path, monkeypatch):
         top = out.hits[0]
         # RRF with both streams matching rank-1 gives 2/61 ≈ 0.033.
         # A single-stream match would give 1/61 ≈ 0.016.
-        assert top.score > 0.025, f"hybrid score {top.score} too low — fusion probably not happening"
+        assert top.score > 0.025, (
+            f"hybrid score {top.score} too low — fusion probably not happening"
+        )
     finally:
         reset_settings_for_tests(Settings())
