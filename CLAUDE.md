@@ -120,7 +120,8 @@ What's wired end-to-end today:
 - `ModelProvider` ABC with a request-time `OllamaProvider` implementation
 - Dockerfile + Compose paths for Mac REST dev and Pi/tailnet MCP deployment.
   The Pi path runs MCP HTTP + worker as separate services, includes M3 visual
-  deps, and does not bundle Ollama/Gemma.
+  deps, disables inline ingest in the MCP service, and does not bundle
+  Ollama/Gemma.
 
 Shipped:
 - **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, numpy, transformers) keeps heavyweight ML packages out of the core install; sqlite-vec is core because the shipped schema requires vec0 tables.
@@ -180,8 +181,10 @@ the `tesseract` subprocess can't read the sandbox `TMPDIR`, run
 
 Four MCP tools (`ingest`, `ask`, `search`, `status`) sit in front of a
 shared handler layer. The handlers either run the pipeline inline (for the
-sync-if-fast `ingest` path) or delegate to a background worker that drains
-the job queue. Each pipeline stage takes a `pipeline_state` dict, returns a
+sync-if-fast local `ingest` path) or delegate to a background worker that drains
+the job queue. Pi/tailnet Compose sets `MMRAG_INGEST_INLINE=false` so
+`mmrag-mcp` only enqueues/polls and `mmrag-worker` owns heavy pipeline work.
+Each pipeline stage takes a `pipeline_state` dict, returns a
 patch, and the runner persists state to the `jobs` row after every stage —
 so a worker crash mid-job is recoverable from the recorded `stage`.
 
@@ -232,8 +235,10 @@ See `docs/architecture.md` for the diagram and the full data flow.
   `_upsert_asset` reconciles `asset_id` if a hash collision is found.
 - **`ingest` is sync-if-fast.** It blocks for up to `wait_ms` ms (default
   30000) and returns either a finished result or `{status: in_progress, job_id}`
-  for polling. The worker keeps draining the same job in the background even
-  if the request returns early.
+  for polling. In default/local mode the handler may run the pipeline inline and
+  keep draining in-process after an early return. In Pi/tailnet mode
+  `MMRAG_INGEST_INLINE=false`, so the handler only enqueues/polls and the
+  separate worker drains the job.
 - **`mmrag.logging` shadows stdlib `logging`** when imported via
   `from mmrag.logging import ...`. That's fine internally but be careful in
   test/repro snippets that mix the two.

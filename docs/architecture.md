@@ -100,6 +100,9 @@ recorded `stage`.
 `ingest` is **sync-if-fast, async-if-slow**: it blocks for up to
 `wait_ms` milliseconds (default 30000) and returns either a finished
 `{status:done, asset_id}` or `{status:in_progress, job_id}` for polling.
+In local/default profiles the handler may run the pipeline inline. Pi/tailnet
+Compose sets `MMRAG_INGEST_INLINE=false`, so the MCP service only enqueues and
+polls while `mmrag-worker` owns pipeline execution.
 
 ## Job lifecycle
 
@@ -172,7 +175,8 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
 - **REST** (`serve-api`): admin + debug surface, not the agent path.
 - **Pi/Pironman deploy**: `docker-compose.pi.yml` runs `mmrag-init`,
   `mmrag-mcp`, and `mmrag-worker` against one `/data` volume. Only MCP HTTP
-  is published; REST stays off the tailnet-facing Compose path.
+  is published; REST stays off the tailnet-facing Compose path. Ingest is
+  queue-only in `mmrag-mcp` for this profile.
 
 **v1 is single-tenant.** No caller IDs, no per-caller quotas, no
 asset-visibility scoping. Auth is one shared bearer token per host.

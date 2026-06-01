@@ -2,6 +2,7 @@
 # REST is intentionally not published here; keep it for local admin/debug.
 x-mmrag-pi-env: &mmrag-pi-env
   MMRAG_DATA_DIR: /data
+  MMRAG_INGEST_INLINE: "false"
   MMRAG_WORKER_CONCURRENCY: "1"
   MMRAG_MCP_HOST: 0.0.0.0
   MMRAG_MCP_PORT: "8766"

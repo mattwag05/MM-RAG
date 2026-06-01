@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+from mmrag.config import get_settings
 from mmrag.db.connection import connect, transaction
 from mmrag.logging import get_logger
 from mmrag.models.job import JobStatus
@@ -10,6 +11,8 @@ from mmrag.models.mcp_io import IngestInput, IngestOutput
 from mmrag.pipeline.runner import run_pipeline
 
 log = get_logger("handler.ingest")
+
+_EXTERNAL_RUNNER_POLL_S = 0.1
 
 
 def _create_job(inp: IngestInput) -> str:
@@ -87,19 +90,38 @@ def _read_summary(asset_id: str | None) -> str | None:
 
 
 async def handle_ingest(inp: IngestInput) -> IngestOutput:
-    """Sync-if-fast, async-if-slow. Always creates a job, then races the
-    pipeline against a wait_ms budget."""
-    job_id = _create_job(inp)
-    log.info("ingest.queued", job_id=job_id, source=inp.source, wait_ms=inp.wait_ms)
+    """Create a job and optionally run it inline within the wait_ms budget.
 
-    pipeline_task = asyncio.create_task(run_pipeline(job_id))
-    try:
-        # wait_ms == 0 means "fire and forget, return immediately."
-        if inp.wait_ms > 0:
-            await asyncio.wait_for(asyncio.shield(pipeline_task), timeout=inp.wait_ms / 1000.0)
-    except TimeoutError:
-        # Don't cancel; let the worker (or in-process task) keep running.
-        pass
+    Mac/local dev defaults to inline execution so short ingests can complete in
+    one request. Pi/tailnet deployments set MMRAG_INGEST_INLINE=false so the MCP
+    service only enqueues while the worker process owns heavy pipeline stages.
+    """
+    job_id = _create_job(inp)
+    ingest_inline = get_settings().ingest_inline
+    log.info(
+        "ingest.queued",
+        job_id=job_id,
+        source=inp.source,
+        wait_ms=inp.wait_ms,
+        ingest_inline=ingest_inline,
+    )
+
+    if ingest_inline:
+        pipeline_task = asyncio.create_task(run_pipeline(job_id))
+        try:
+            # wait_ms == 0 means "fire and forget, return immediately."
+            if inp.wait_ms > 0:
+                await asyncio.wait_for(asyncio.shield(pipeline_task), timeout=inp.wait_ms / 1000.0)
+        except TimeoutError:
+            # Don't cancel; let the in-process task keep running.
+            pass
+    elif inp.wait_ms > 0:
+        deadline = asyncio.get_running_loop().time() + (inp.wait_ms / 1000.0)
+        while asyncio.get_running_loop().time() < deadline:
+            job = _read_job(job_id)
+            if job is None or job["status"] in {JobStatus.DONE.value, JobStatus.ERROR.value}:
+                break
+            await asyncio.sleep(_EXTERNAL_RUNNER_POLL_S)
 
     job = _read_job(job_id)
     if job is None:
