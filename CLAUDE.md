@@ -1,7 +1,8 @@
 # CLAUDE.md — MM-RAG
 
 > Edge-optimized multimodal ingestion tool exposed as an MCP server.
-> Python 3.13, MIT-licensed, currently at v0.1.0 (M6 Pi deploy path shipped).
+> Tested/deployed on Python 3.13, MIT-licensed, currently at v0.1.0
+> (M6 Pi deploy path shipped).
 
 ## What it is
 
@@ -78,7 +79,8 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 ## Status (v0.1.0 — M6 Pi deploy path)
 
 What's wired end-to-end today:
-- `uv` project on Python 3.13, **setuptools** backend (NOT hatchling — see "Gotchas")
+- `uv` project with broad Python `>=3.11,<3.14` packaging; dev/deploy
+  default is Python 3.13. **setuptools** backend (NOT hatchling — see "Gotchas")
 - FastMCP stdio server with all 4 tools (`mmrag serve-mcp`)
 - FastMCP Streamable HTTP server with the same 4 tools (`mmrag serve-mcp-http`)
   for shared tailnet access; non-loopback binds require `MMRAG_MCP_TOKEN`.

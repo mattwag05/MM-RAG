@@ -83,7 +83,7 @@ brew install tesseract                # required for OCR stage (Apache-2, not bu
 
 git clone <this repo>
 cd MM-RAG
-make sync-dev                         # installs Python 3.13, runtime + dev deps into .venv.nosync/
+make sync-dev                         # uses Python 3.13 by default; installs runtime + dev deps
 # For the M3 visual pipeline (frame sampling, OCR, SigLIP embeddings):
 make sync-m3                          # adds torch, open-clip-torch, sqlite-vec, etc.
 make init-db                          # creates ~/.local/share/mmrag/mmrag.db
@@ -371,7 +371,7 @@ independently testable; the project pauses for review between them.
 
 | Milestone | Status | Scope |
 |-----------|:------:|-------|
-| **M1** | ✅ | Walking skeleton: project layout, `uv` + Python 3.13, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
+| **M1** | ✅ | Walking skeleton: project layout, `uv` + tested/deployed Python 3.13 default, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
 | **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |

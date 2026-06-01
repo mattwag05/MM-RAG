@@ -26,7 +26,7 @@ a config change, not a rewrite.
 
 | Layer | Choice | License |
 |---|---|---|
-| Language | Python 3.13 | PSF |
+| Language | Python >=3.11,<3.14; tested/deployed on 3.13 | PSF |
 | Dep manager | uv | Apache-2 |
 | MCP server | FastMCP (`mcp.server.fastmcp`) | MIT |
 | REST mirror | FastAPI | MIT |
