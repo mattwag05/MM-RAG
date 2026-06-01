@@ -80,6 +80,8 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 What's wired end-to-end today:
 - `uv` project on Python 3.13, **setuptools** backend (NOT hatchling — see "Gotchas")
 - FastMCP stdio server with all 4 tools (`mmrag serve-mcp`)
+- FastMCP Streamable HTTP server with the same 4 tools (`mmrag serve-mcp-http`)
+  for shared tailnet access; non-loopback binds require `MMRAG_MCP_TOKEN`.
 - FastAPI REST mirror on `:8765` (`mmrag serve-api`)
 - Background worker that drains the job queue (`mmrag worker`)
 - SQLite WAL store, migration runner, M1–M4 foundation schema (`assets`, `jobs`,
@@ -103,7 +105,7 @@ What's wired end-to-end today:
   and frames; it is the foundation for document ingestion and graph retrieval.
 - Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
   ingest → search round-trip using a TTS-generated speech fixture
-  (65/65 passing on macOS with `say`; integration tests auto-skip if no
+  (72/72 passing on macOS with `say`; integration tests auto-skip if no
   TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
 - `ModelProvider` ABC with a request-time `OllamaProvider` implementation
@@ -112,9 +114,9 @@ What's wired end-to-end today:
 Shipped:
 - **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, pytesseract, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
 - **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation.
+- **M5** — streamable-HTTP MCP transport for one shared tailnet service (`MMRAG_MCP_HOST` / `MMRAG_MCP_PORT` / `MMRAG_MCP_PATH`, protected by `MMRAG_MCP_TOKEN` when not loopback). Discovery metadata is served at `/.well-known/mcp-resource`.
 
 Open milestones (see `bd ready` and `docs/pmf-rethink.md` for full rationale):
-- **M5** — streamable-HTTP MCP transport (tailnet-hosted shared service on Pironman; all edge agents hit one index)
 - **M6** — Pi / Pironman deploy (lighter footprint: no bundled Gemma; depends on M5 transport)
 - **M7** — Social Bookmarks Triage REST integration (reference consumer, not core)
 - **MM-RAG 2.x follow-ups** — document ingestion, graph retrieval, and optional vector backends (tracked in Beads)
@@ -132,8 +134,9 @@ make sync-m3                              # runtime + dev + M3 visual pipeline d
 make init-db                              # create the SQLite DB at MMRAG_DATA_DIR
 make serve-api                            # FastAPI on :8765
 make serve-mcp                            # FastMCP over stdio
+make serve-mcp-http                       # FastMCP Streamable HTTP on :8766
 make worker                               # drain the job queue
-make test                                 # full test suite (61 tests)
+make test                                 # full test suite (72 tests)
 make lint                                 # ruff check  src tests (correctness/style gate)
 make format                               # ruff format src tests (separate formatter gate)
 ```
@@ -146,7 +149,7 @@ because the `tesseract` subprocess can't read the sandbox `TMPDIR` — run
 
 | Area | Path |
 |---|---|
-| MCP tool definitions | `src/mmrag/mcp_server.py` (4 `@mcp.tool()` decorators) |
+| MCP tool definitions | `src/mmrag/mcp_server.py` (FastMCP app factory for stdio + Streamable HTTP) |
 | REST mirror | `src/mmrag/api.py` |
 | Tool handlers (shared by MCP + REST) | `src/mmrag/handlers/` |
 | Pipeline runner + stages | `src/mmrag/pipeline/runner.py`, `src/mmrag/pipeline/stages/` |

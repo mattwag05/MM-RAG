@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     sbt_url: str | None = None
     api_host: str = "127.0.0.1"
     api_port: int = 8765
+    mcp_host: str = "127.0.0.1"
+    mcp_port: int = 8766
+    mcp_path: str = "/mcp"
+    mcp_token: str | None = None
+    mcp_public_url: str | None = None
     log_level: str = "INFO"
     worker_concurrency: int = 2
 

@@ -53,6 +53,7 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ `status(job_id)` returns the live stage + progress fraction + error info
 - ✅ Crash-resumable pipeline — restart the worker mid-job and it picks up at the recorded stage
 - ✅ FastMCP stdio server with all 4 tools registered
+- ✅ FastMCP Streamable HTTP server with shared bearer-token auth for tailnet use
 - ✅ FastAPI REST mirror on `:8765` with the same surface
 - ✅ Background worker (`mmrag worker`) that drains the job queue
 - ✅ SQLite WAL store with migration runner
@@ -81,6 +82,7 @@ make sync-dev                         # installs Python 3.13, runtime + dev deps
 make sync-m3                          # adds torch, open-clip-torch, pytesseract, sqlite-vec, etc.
 make init-db                          # creates ~/.local/share/mmrag/mmrag.db
 make serve-api &                      # FastAPI REST on http://127.0.0.1:8765
+make serve-mcp-http &                 # Streamable HTTP MCP on http://127.0.0.1:8766/mcp
 make worker &                         # drains the job queue
 
 # Smoke test against the checked-in fixture
@@ -172,13 +174,33 @@ Add to your client's MCP config:
 Then in the chat: *"Ingest <some YouTube URL>, then ask what happens at the
 30-second mark."*
 
+### Shared tailnet MCP server
+
+`serve-mcp-http` exposes the same four MCP tools over FastMCP's
+Streamable HTTP transport. Loopback binds are allowed without a token for
+local development; any non-loopback bind requires `MMRAG_MCP_TOKEN`.
+
+```bash
+export MMRAG_MCP_HOST=0.0.0.0
+export MMRAG_MCP_PORT=8766
+export MMRAG_MCP_PATH=/mcp
+export MMRAG_MCP_PUBLIC_URL=http://mmrag.tailnet:8766
+export MMRAG_MCP_TOKEN='shared-secret'
+make serve-mcp-http
+```
+
+Discovery metadata is public at `/.well-known/mcp-resource`; the MCP
+endpoint itself expects `Authorization: Bearer <MMRAG_MCP_TOKEN>`. The
+FastAPI REST server remains an admin/debug mirror, not the shared agent
+transport.
+
 ---
 
 ## Architecture
 
 ```
                 ┌─────────────────────────────────────────────┐
-                │ MCP server (FastMCP, stdio)                 │
+                │ MCP server (FastMCP stdio or HTTP)          │
                 │ tools: ingest / ask / search / status       │
                 └───────────────┬─────────────────────────────┘
                                 │ shared handler implementations
@@ -315,7 +337,7 @@ independently testable; the project pauses for review between them.
 | **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, and `content_items` projects scenes/segments/frames into a unified foundation. |
-| M5 | 🧱 | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service |
+| **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
 | M6 | 🧱 | Raspberry Pi / Pironman deploy (lighter footprint, depends on M5 transport) |
 | M7 | 🧱 | Social Bookmarks Triage REST integration as a reference consumer |
 
@@ -342,10 +364,10 @@ MM-RAG/
 │   ├── test_pipeline_fetch.py
 │   └── test_pipeline_normalize.py
 └── src/mmrag/
-    ├── cli.py                 # typer: serve-mcp | serve-api | worker | init-db
+    ├── cli.py                 # typer: serve-mcp | serve-mcp-http | serve-api | worker | init-db
     ├── config.py              # pydantic-settings (data_dir, ollama_url, ...)
     ├── logging.py             # structlog setup
-    ├── mcp_server.py          # FastMCP app (4 tools)
+    ├── mcp_server.py          # FastMCP stdio + Streamable HTTP app factory
     ├── api.py                 # FastAPI REST mirror
     ├── worker.py              # job-queue drain
     ├── sbt_client.py          # Social Bookmarks Triage REST client (M7)

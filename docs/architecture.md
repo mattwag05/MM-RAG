@@ -57,7 +57,7 @@ Ollama process.
 
 ```
 ┌──────────────────────────────────┐     ┌────────────────────┐
-│ MCP server (FastMCP, stdio)      │     │ FastAPI REST       │
+│ MCP server (FastMCP stdio/HTTP)  │     │ FastAPI REST       │
 │ tools: ingest/ask/search/status  │     │ /ingest /ask /...  │
 └──────────────┬───────────────────┘     └─────────┬──────────┘
                │                                   │
@@ -87,8 +87,8 @@ Ollama process.
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │ SBT push (M5, opt-in)       │
-              │ POST /api/ingest/multimodal │
+              │ Evidence packs              │
+              │ ask/search over shared index│
               └─────────────────────────────┘
 ```
 
@@ -153,13 +153,15 @@ retrieved evidence packs to yet another inference layer.
 REST-only (not exposed to MCP clients): `reindex`, `retry`,
 `delete_asset`, `bulk_import`. Admin moves.
 
-## Transport (post-M5)
+## Transport
 
-- **Stdio MCP** (M1–M4): `mmrag serve-mcp`, for local subprocess
+- **Stdio MCP**: `mmrag serve-mcp`, for local subprocess
   Claude Code clients on the dev Mac.
-- **Streamable-HTTP MCP** (M5+): tailnet-hosted endpoint, shared
-  bearer token in env (`MMRAG_MCP_TOKEN`), Tailscale-only bind.
-  Published `.well-known/mcp-resource` for client discovery. This is
+- **Streamable-HTTP MCP**: `mmrag serve-mcp-http`, tailnet-hosted endpoint,
+  shared bearer token in env (`MMRAG_MCP_TOKEN`), Tailscale-only bind.
+  Defaults are `MMRAG_MCP_HOST=127.0.0.1`, `MMRAG_MCP_PORT=8766`, and
+  `MMRAG_MCP_PATH=/mcp`; non-loopback binds fail without a token. Published
+  `.well-known/mcp-resource` for client discovery. This is
   how Talia, Gus, Kit, and Claude Code all query the same MM-RAG
   instance hosted on Pironman.
 - **REST** (`serve-api`): admin + debug surface, not the agent path.
@@ -194,8 +196,9 @@ the full rationale behind the current milestone ordering.
   transcript segments, and frames. Stage 8 `summarize` remains a
   deterministic indexing follow-up (per-scene short-text distillation
   stored in `scenes.summary`).
-- **M5** brings streamable-HTTP MCP transport for tailnet-hosted
-  deployment. Promoted from P3 because the PMF thesis *is* shared
+- **M5** **(shipped)** brings streamable-HTTP MCP transport for tailnet-hosted
+  deployment, shared bearer-token auth, safe loopback defaults, and public
+  discovery metadata. Promoted from P3 because the PMF thesis *is* shared
   index over MCP, and stdio-only silos contradict that.
 - **M6** brings the Pi / Pironman deploy. Lighter footprint than the
   original scope (no bundled Gemma 4, no Ollama hard dep). Blocks on

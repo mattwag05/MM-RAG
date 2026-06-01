@@ -24,7 +24,7 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual
 
-.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp worker docker-build docker-up
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http worker docker-build docker-up
 
 help:
 	@echo "Targets:"
@@ -37,6 +37,7 @@ help:
 	@echo "  make init-db     # create the SQLite store at MMRAG_DATA_DIR"
 	@echo "  make serve-api   # FastAPI on :8765"
 	@echo "  make serve-mcp   # FastMCP over stdio"
+	@echo "  make serve-mcp-http # FastMCP Streamable HTTP on :8766"
 	@echo "  make worker      # drain the job queue"
 	@echo "  make clean       # remove venv + caches"
 	@echo "  make docker-build"
@@ -68,6 +69,9 @@ serve-api:
 
 serve-mcp:
 	$(UV_RUN) mmrag serve-mcp
+
+serve-mcp-http:
+	$(UV_RUN) mmrag serve-mcp-http
 
 worker:
 	$(UV_RUN) mmrag worker
