@@ -233,12 +233,11 @@ See `docs/architecture.md` for the diagram and the full data flow.
   and a clear install hint if it's missing. The OCR stage shells out through
   `pipeline.subprocess_util.run`, so the 10s per-frame timeout terminates a
   slow Tesseract child with SIGTERM/SIGKILL escalation.
-- **SigLIP cosine on synthetic fixtures caps around ~0.17.** The M3 acceptance
-  test uses a relaxed `> 0.05` threshold against a SMPTE colorbars fixture
-  because `timm/ViT-B-16-SigLIP-256` simply has weak affinity for synthetic
-  test patterns (it was trained on natural images). The pipeline is correct
-  end-to-end; the threshold is a model-level constraint, not a bug. Follow-up
-  issue `MM-RAG-eb8` tracks the fixture improvement.
+- **SigLIP raw cosine scores are modest.** The M3 acceptance test uses a
+  natural apple/table fixture and asserts `> 0.14` on the `vec_frames`
+  cross-modal hit. That is intentionally below old CLIP-style `> 0.5`
+  expectations: `timm/ViT-B-16-SigLIP-256` returns lower normalized dot
+  products, especially after video encode/frame extraction.
 - **Test isolation uses `reset_settings_for_tests`, NOT `monkeypatch.setenv +
   cache_clear`.** `get_settings` is a module-level singleton, not `@lru_cache`.
   Correct pattern: `reset_settings_for_tests(Settings(data_dir=tmp_path))` at

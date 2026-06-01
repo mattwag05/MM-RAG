@@ -187,7 +187,6 @@ the full rationale behind the current milestone ordering.
   a plain FTS5 `fts_scenes` index maintained by application code, and
   hybrid RRF retrieval across FTS transcript / FTS scenes / vector frames /
   vector transcript. Renamed `shots` → `scenes` across the schema.
-  Follow-up: `MM-RAG-eb8` (natural-image acceptance fixture).
 - **M4** **(shipped)** brings evidence packs: rescoped from the original "Reasoning
   pipeline" to make `ask` evidence-only by default (`answer: str |
   None`, new `synthesize: bool = False` flag), enrich `search` hits

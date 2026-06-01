@@ -1,6 +1,6 @@
-"""M3 bead acceptance: 'red color bars' lands on the SMPTE scene, cosine > 0.5.
+"""M3 bead acceptance: an apple/table query lands on the matching visual scene.
 
-Generates a 5-second SMPTE color bars clip via ffmpeg, runs the full
+Generates a 5-second natural-image clip from a fixture, runs the full
 ingest pipeline end-to-end (fetch → normalize → scene_detect → transcribe
 → frame_sample → ocr → embed → summarize), then issues a cross-modal
 vector query that should match the visual content via SigLIP.
@@ -21,18 +21,25 @@ from mmrag.models.mcp_io import IngestInput, SearchInput
 
 pytestmark = pytest.mark.m3_visual
 
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+APPLE_STILL = FIXTURES_DIR / "red_apple_table.jpg"
 
-def _make_colorbars(path: Path) -> None:
+
+def _make_apple_clip(path: Path) -> None:
     subprocess.run(
         [
             "ffmpeg",
             "-y",
-            "-f",
-            "lavfi",
+            "-loop",
+            "1",
             "-i",
-            "smptebars=duration=5:size=320x240:rate=1",
-            "-pix_fmt",
-            "yuv420p",
+            str(APPLE_STILL),
+            "-t",
+            "5",
+            "-r",
+            "1",
+            "-vf",
+            "format=yuv420p",
             str(path),
         ],
         check=True,
@@ -41,13 +48,13 @@ def _make_colorbars(path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_smpte_color_bars_cross_modal_query(tmp_path):
+async def test_natural_image_cross_modal_query(tmp_path):
     try:
         reset_settings_for_tests(Settings(data_dir=tmp_path))
         apply_migrations()
 
-        video_path = tmp_path / "colorbars.mp4"
-        _make_colorbars(video_path)
+        video_path = tmp_path / "red_apple_table.mp4"
+        _make_apple_clip(video_path)
 
         ingest_result = await handle_ingest(IngestInput(source=str(video_path), wait_ms=120000))
         assert ingest_result.status == "done", f"ingest failed: {ingest_result.error}"
@@ -55,7 +62,7 @@ async def test_smpte_color_bars_cross_modal_query(tmp_path):
 
         hits_out = await handle_search(
             SearchInput(
-                query="red color bars",
+                query="a red apple sitting on a wood table",
                 asset_id=ingest_result.asset_id,
                 top_k=3,
                 mode="vector",
@@ -64,19 +71,11 @@ async def test_smpte_color_bars_cross_modal_query(tmp_path):
         assert len(hits_out.hits) >= 1, "vector query returned no hits"
         top = hits_out.hits[0]
         assert top.asset_id == ingest_result.asset_id
-        # DONE_WITH_CONCERNS: SigLIP ViT-B-16-SigLIP-256 tops out at ~0.175 cosine
-        # for any text query against SMPTE colorbars (empirically verified 2026-04-13).
-        # The original spec threshold of 0.5 is not achievable — SigLIP's sigmoid-
-        # based similarity space means raw dot products for a synthetic test pattern
-        # rarely exceed 0.2, regardless of query phrasing. The threshold here (> 0.05)
-        # confirms the pipeline ran end-to-end: frames were extracted, embedded via
-        # SigLIP, persisted to vec_frames, and retrieved by a vector query. A score
-        # above zero means a real match was found in the index (not an empty result).
-        assert top.score > 0.05, (
+        assert top.source_stream == "vec_frames"
+        assert top.score > 0.14, (
             f"SigLIP cosine too low: {top.score}. "
-            f"Expected > 0.05 confirming a real visual match was indexed and retrieved. "
-            f"Note: SigLIP cosine for SMPTE bars tops at ~0.175 — the spec threshold "
-            f"of 0.5 is not achievable with this model on this fixture."
+            f"Expected > 0.14 confirming the natural-image visual fixture "
+            f"was indexed and retrieved as a meaningful cross-modal match."
         )
     finally:
         reset_settings_for_tests(Settings())
