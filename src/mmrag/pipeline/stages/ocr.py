@@ -23,7 +23,8 @@ frame runs.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 
 from mmrag.logging import get_logger
 from mmrag.pipeline.m3_errors import OCRError
@@ -76,7 +77,7 @@ async def _run_one(path: str) -> str:
     fut = loop.run_in_executor(_pool(), _run_one_sync, path)
     try:
         return await asyncio.wait_for(fut, timeout=_PER_FRAME_TIMEOUT_S)
-    except (FuturesTimeout, asyncio.TimeoutError):
+    except (TimeoutError, FuturesTimeout):
         log.warning("ocr.timeout", path=path)
         return ""
     except FileNotFoundError:

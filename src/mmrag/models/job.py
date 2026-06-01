@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     DONE = "done"
     ERROR = "error"
 
 
-class Stage(str, Enum):
+class Stage(StrEnum):
     QUEUED = "queued"
     FETCH = "fetch"
     NORMALIZE = "normalize"

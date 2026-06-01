@@ -55,13 +55,13 @@ async def run(
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
             proc.communicate(), timeout=timeout_s
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("timeout, escalating SIGTERM", argv=argv, pid=proc.pid)
         try:
             proc.send_signal(signal.SIGTERM)
             try:
                 await asyncio.wait_for(proc.wait(), timeout=grace_s)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning("SIGTERM ignored, sending SIGKILL", pid=proc.pid)
                 proc.kill()
                 await proc.wait()
