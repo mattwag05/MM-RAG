@@ -5,6 +5,7 @@ import struct
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect, transaction
+from mmrag.db.content_items import rewrite_content_items_for_asset
 from mmrag.logging import get_logger
 from mmrag.models.job import M1_STAGE_ORDER, JobStatus, Stage
 from mmrag.pipeline.stages.embed import embed
@@ -212,6 +213,7 @@ def _rewrite_fts_scenes(*, asset_id: str) -> None:
 
 def _persist_vectors(
     *,
+    asset_id: str,
     frame_id_map: dict[tuple[int, int], int],
     scene_id_by_idx: dict[int, int],
     segment_id_by_idx: dict[int, int],
@@ -227,8 +229,8 @@ def _persist_vectors(
                 continue
             conn.execute("DELETE FROM vec_frames WHERE rowid = ?", (frame_id,))
             conn.execute(
-                "INSERT INTO vec_frames(rowid, embedding) VALUES (?, ?)",
-                (frame_id, _pack_vec(entry["vector"])),
+                "INSERT INTO vec_frames(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (frame_id, _pack_vec(entry["vector"]), asset_id),
             )
         for entry in scene_vectors:
             scene_id = scene_id_by_idx.get(int(entry["scene_idx"]))
@@ -236,8 +238,8 @@ def _persist_vectors(
                 continue
             conn.execute("DELETE FROM vec_scenes WHERE rowid = ?", (scene_id,))
             conn.execute(
-                "INSERT INTO vec_scenes(rowid, embedding) VALUES (?, ?)",
-                (scene_id, _pack_vec(entry["vector"])),
+                "INSERT INTO vec_scenes(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (scene_id, _pack_vec(entry["vector"]), asset_id),
             )
         for entry in segment_vectors:
             seg_id = segment_id_by_idx.get(int(entry["seg_idx"]))
@@ -245,8 +247,8 @@ def _persist_vectors(
                 continue
             conn.execute("DELETE FROM vec_transcript WHERE rowid = ?", (seg_id,))
             conn.execute(
-                "INSERT INTO vec_transcript(rowid, embedding) VALUES (?, ?)",
-                (seg_id, _pack_vec(entry["vector"])),
+                "INSERT INTO vec_transcript(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (seg_id, _pack_vec(entry["vector"]), asset_id),
             )
 
 
@@ -451,11 +453,13 @@ async def run_pipeline(job_id: str) -> None:
                     asset_id=state["asset_id"],
                     scenes=state.get("scenes", []),
                 )
+                rewrite_content_items_for_asset(state["asset_id"])
             elif stage is Stage.TRANSCRIBE and state.get("asset_id"):
                 _persist_segments(
                     asset_id=state["asset_id"],
                     segments=state.get("segments", []),
                 )
+                rewrite_content_items_for_asset(state["asset_id"])
             elif stage is Stage.FRAME_SAMPLE and state.get("asset_id"):
                 scene_id_by_idx = _scene_id_by_idx(state["asset_id"])
                 frame_id_map = _persist_frames(
@@ -468,12 +472,14 @@ async def run_pipeline(job_id: str) -> None:
                 # from the JSON by _strip_internal before state is saved.
                 state["__frame_id_map"] = {f"{k[0]}:{k[1]}": v for k, v in frame_id_map.items()}
                 state["__scene_id_by_idx"] = {str(k): v for k, v in scene_id_by_idx.items()}
+                rewrite_content_items_for_asset(state["asset_id"])
             elif stage is Stage.OCR and state.get("asset_id"):
                 _update_frame_ocr(
                     asset_id=state["asset_id"],
                     frames=state.get("frames", []),
                 )
                 _rewrite_fts_scenes(asset_id=state["asset_id"])
+                rewrite_content_items_for_asset(state["asset_id"])
             elif stage is Stage.EMBED and state.get("asset_id"):
                 raw_frame_stash = state.get("__frame_id_map") or {}
                 if raw_frame_stash:
@@ -492,6 +498,7 @@ async def run_pipeline(job_id: str) -> None:
                     scene_id_by_idx = _scene_id_by_idx(state["asset_id"])
                 segment_id_by_idx = _segment_id_by_idx(state["asset_id"])
                 _persist_vectors(
+                    asset_id=state["asset_id"],
                     frame_id_map=frame_id_map,
                     scene_id_by_idx=scene_id_by_idx,
                     segment_id_by_idx=segment_id_by_idx,

@@ -49,14 +49,27 @@ class TestAsk:
         inp = AskInput(question="what?")
         assert inp.top_k == 5
         assert inp.model == "gemma4:e4b"
+        assert inp.synthesize is False
 
     def test_evidence_shape(self) -> None:
         out = AskOutput(
-            answer="hi",
-            evidence=[Evidence(asset_id="a", start_s=1.0, end_s=2.0, transcript_snippet="hi")],
+            answer=None,
+            evidence=[
+                Evidence(
+                    asset_id="a",
+                    start_s=1.0,
+                    end_s=2.0,
+                    transcript_snippet="hi",
+                    source_stream="fts_transcript",
+                    snippet="hi",
+                    score=0.42,
+                )
+            ],
             confidence="medium",
         )
+        assert out.answer is None
         assert out.evidence[0].start_s == 1.0
+        assert out.evidence[0].source_stream == "fts_transcript"
 
 
 class TestSearch:

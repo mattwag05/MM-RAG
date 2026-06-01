@@ -67,10 +67,12 @@ def test_migration_0003_vec_tables_are_writable(tmp_path):
         blob = struct.pack("768f", *([0.0] * 768))
         with connect() as conn:
             conn.execute(
-                "INSERT INTO vec_frames(rowid, embedding) VALUES (1, ?)",
-                (blob,),
+                "INSERT INTO vec_frames(rowid, embedding, asset_id) VALUES (1, ?, ?)",
+                (blob, "asset-1"),
             )
-            row = conn.execute("SELECT COUNT(*) AS n FROM vec_frames").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM vec_frames WHERE asset_id = 'asset-1'"
+            ).fetchone()
             assert row["n"] == 1
     finally:
         reset_settings_for_tests(Settings())

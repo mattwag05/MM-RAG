@@ -43,12 +43,18 @@ async def ask(
     asset_id: str | None = None,
     top_k: int = 5,
     model: str = "gemma4:e4b",
+    synthesize: bool = False,
 ) -> dict:
     """Answer a natural-language question about an ingested asset (or the
-    whole library) by retrieving top-k evidence and reasoning with Gemma 4.
-
-    M1: returns a placeholder. Real impl lands in M4."""
-    inp = AskInput(question=question, asset_id=asset_id, top_k=top_k, model=model)
+    whole library). By default returns retrieved evidence only; set
+    synthesize=true to ask the configured reasoning backend for an answer."""
+    inp = AskInput(
+        question=question,
+        asset_id=asset_id,
+        top_k=top_k,
+        model=model,
+        synthesize=synthesize,
+    )
     out: AskOutput = await handle_ask(inp)
     return out.model_dump()
 

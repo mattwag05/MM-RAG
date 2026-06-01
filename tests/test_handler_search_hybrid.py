@@ -83,8 +83,8 @@ async def test_vector_mode_returns_raw_cosine(tmp_path, monkeypatch):
         target[0] = 1.0
         with connect() as conn:
             conn.execute(
-                "INSERT INTO vec_frames(rowid, embedding) VALUES (?, ?)",
-                (frame_id, _pack(target)),
+                "INSERT INTO vec_frames(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (frame_id, _pack(target), asset_id),
             )
 
         from mmrag.handlers import search as search_mod
@@ -145,8 +145,8 @@ async def test_hybrid_mode_fuses_streams(tmp_path, monkeypatch):
         target[0] = 1.0
         with connect() as conn:
             conn.execute(
-                "INSERT INTO vec_frames(rowid, embedding) VALUES (?, ?)",
-                (frame_id, _pack(target)),
+                "INSERT INTO vec_frames(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (frame_id, _pack(target), asset_id),
             )
 
         from mmrag.handlers import search as search_mod
@@ -172,5 +172,72 @@ async def test_hybrid_mode_fuses_streams(tmp_path, monkeypatch):
         assert top.score > 0.025, (
             f"hybrid score {top.score} too low — fusion probably not happening"
         )
+    finally:
+        reset_settings_for_tests(Settings())
+
+
+async def test_asset_scoped_vector_search_filters_inside_knn(tmp_path, monkeypatch):
+    """Regression: sqlite-vec k= is global unless asset_id is an aux filter."""
+    try:
+        _bootstrap(tmp_path)
+        asset_a = str(uuid.uuid4())
+        asset_b = str(uuid.uuid4())
+        with connect() as conn:
+            for asset_id, content_hash in ((asset_a, "asset-a"), (asset_b, "asset-b")):
+                conn.execute(
+                    "INSERT INTO assets(id, content_hash, source_kind, metadata_json) "
+                    "VALUES (?, ?, 'file', '{}')",
+                    (asset_id, content_hash),
+                )
+                conn.execute(
+                    "INSERT INTO scenes(asset_id, scene_idx, start_s, end_s) "
+                    "VALUES (?, 0, 0.0, 2.0)",
+                    (asset_id,),
+                )
+                scene_id = conn.execute(
+                    "SELECT id FROM scenes WHERE asset_id=?", (asset_id,)
+                ).fetchone()["id"]
+                conn.execute(
+                    "INSERT INTO frames(asset_id, scene_id, frame_idx, t_s, path) "
+                    "VALUES (?, ?, 0, 1.0, '/tmp/x.jpg')",
+                    (asset_id, scene_id),
+                )
+
+            frame_a = conn.execute(
+                "SELECT id FROM frames WHERE asset_id=?", (asset_a,)
+            ).fetchone()["id"]
+            frame_b = conn.execute(
+                "SELECT id FROM frames WHERE asset_id=?", (asset_b,)
+            ).fetchone()["id"]
+
+        query = [0.0] * 768
+        query[0] = 1.0
+        near_other_asset = [0.0] * 768
+        near_other_asset[0] = 1.0
+        scoped_asset_match = [0.0] * 768
+        scoped_asset_match[1] = 1.0
+
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO vec_frames(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (frame_a, _pack(scoped_asset_match), asset_a),
+            )
+            conn.execute(
+                "INSERT INTO vec_frames(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (frame_b, _pack(near_other_asset), asset_b),
+            )
+
+        from mmrag.handlers import search as search_mod
+
+        async def fake_encode(_q: str) -> list[float]:
+            return query
+
+        monkeypatch.setattr(search_mod, "_encode_query_text", fake_encode)
+
+        out = await handle_search(
+            SearchInput(query="anything", mode="vector", asset_id=asset_a, top_k=1)
+        )
+        assert len(out.hits) == 1
+        assert out.hits[0].asset_id == asset_a
     finally:
         reset_settings_for_tests(Settings())
