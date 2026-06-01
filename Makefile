@@ -14,12 +14,11 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 
 # Every `uv run` must request the extras explicitly. uv >=0.5 auto-syncs the
 # environment to the project's DEFAULT deps on each `uv run`, silently
-# UNINSTALLING whatever `make sync-m3` added (torch, sqlite-vec, Pillow, ...).
-# Because the DB layer needs sqlite-vec (vec0) at *runtime*, a bare `uv run
-# mmrag serve-api` would otherwise crash with `no such module: vec0` — and
-# mixing bare/extra'd `uv run` calls thrashes the venv (each call re-resolves).
-# So all run targets go through $(UV_RUN) with the same full extra set, keeping
-# .venv.nosync in one consistent state. (uv 0.11 has no `[tool.uv]
+# UNINSTALLING whatever `make sync-m3` added (torch, open-clip, Pillow, ...).
+# The default schema needs sqlite-vec, so sqlite-vec is a core dependency; the
+# visual pipeline still needs the m3-visual extra. Keep all run targets on the
+# same full extra set so `uv run` does not thrash the venv by repeatedly
+# stripping and reinstalling visual dependencies. (uv 0.11 has no `[tool.uv]
 # default-extras`, so this can't move into pyproject.toml without demoting the
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual

@@ -116,7 +116,7 @@ What's wired end-to-end today:
   deps, and does not bundle Ollama/Gemma.
 
 Shipped:
-- **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
+- **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, numpy, transformers) keeps heavyweight ML packages out of the core install; sqlite-vec is core because the shipped schema requires vec0 tables.
 - **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation and deterministic per-scene summaries.
 - **M5** — streamable-HTTP MCP transport for one shared tailnet service (`MMRAG_MCP_HOST` / `MMRAG_MCP_PORT` / `MMRAG_MCP_PATH`, protected by `MMRAG_MCP_TOKEN` when not loopback). Discovery metadata is served at `/.well-known/mcp-resource`.
 - **M6** — Pi / Pironman deploy path: MCP HTTP + worker Compose stack,
@@ -284,11 +284,12 @@ See `docs/architecture.md` for the diagram and the full data flow.
 - **`uv run` re-syncs to default deps — it strips the m3-visual extras.**
   uv >=0.5 auto-syncs the environment to the project's *default* dependencies
   on every `uv run`, silently uninstalling whatever `make sync-m3` added
-  (torch, Pillow, sqlite-vec, ...). A bare `uv run pytest` therefore fails
-  collection (`No module named 'PIL'`) and then the DB layer (`no such module:
-  vec0`). The `Makefile`'s `test` target pins `--extra dev --extra m3-visual`
-  on the `uv run` itself for this reason — **always go through `make test`**,
-  and if you run `uv run` directly, pass both extras (and
+  (torch, Pillow, open-clip, transformers, ...). sqlite-vec is now core
+  because the schema requires vec0 tables, but a bare `uv run pytest` can
+  still fail collection (`No module named 'PIL'`) or visual-stage imports.
+  The `Makefile`'s `test` target pins `--extra dev --extra m3-visual` on the
+  `uv run` itself for this reason — **always go through `make test`**, and if
+  you run `uv run` directly, pass both extras (and
   `UV_PROJECT_ENVIRONMENT=.venv.nosync`).
 - **OCR tests need a subprocess-readable temp path.** Tesseract/Leptonica can
   fail if a sandbox redirects `TMPDIR` to a path the child process cannot read

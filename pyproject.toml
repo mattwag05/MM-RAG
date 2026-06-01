@@ -19,8 +19,8 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Heavy ML deps (open_clip, sqlite-vec) are still added in
-# their respective milestones. M2 brings in scenedetect + faster-whisper.
+# Heavy ML deps (open_clip/torch) stay in the visual extra. sqlite-vec is
+# core because the shipped v1 schema creates vec0 tables at init time.
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.32",
@@ -33,6 +33,7 @@ dependencies = [
   # M2 — speech pipeline
   "scenedetect[opencv]>=0.6.4,<0.7",  # BSD-3
   "faster-whisper>=1.0.3,<2.0",       # MIT
+  "sqlite-vec>=0.1.0",                # Apache-2
 ]
 
 [project.optional-dependencies]
@@ -45,7 +46,6 @@ m3-visual = [
   "open-clip-torch>=2.24",
   "torch>=2.2",
   "Pillow>=10.0",
-  "sqlite-vec>=0.1.0",
   "numpy>=1.26",
   "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
 ]

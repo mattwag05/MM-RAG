@@ -18,20 +18,21 @@ _VEC_EXT_DISABLED_WARNED = False
 def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
     """Load the sqlite-vec extension on the given connection when available.
 
-    Degrades silently (one warning per process) in two scenarios:
-    - the ``m3-visual`` extra isn't installed (``ImportError`` on ``sqlite_vec``)
+    sqlite-vec is a core dependency because the current schema creates vec0
+    tables. This still degrades with a warning in two stripped-runtime cases:
+    - the installed environment is missing ``sqlite_vec``
     - the running Python was built without loadable-extension support
       (``AttributeError`` on ``conn.enable_load_extension``)
 
-    Either way, core-only installs and stripped-down platforms can still run
-    MCP tools in FTS-only mode without taking down every caller of connect().
+    Either way, stripped-down platforms can still open the DB for FTS-only
+    reads without taking down every caller of connect().
     """
     global _VEC_LOAD_WARNED, _VEC_EXT_DISABLED_WARNED
     try:
         import sqlite_vec
     except ImportError:
         if not _VEC_LOAD_WARNED:
-            log.warning("sqlite_vec.unavailable", hint="install with: make sync-m3")
+            log.warning("sqlite_vec.unavailable", hint="reinstall mmrag runtime dependencies")
             _VEC_LOAD_WARNED = True
         return
     try:

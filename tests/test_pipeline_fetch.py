@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from mmrag.config import get_settings
+from mmrag.pipeline.stages import fetch as fetch_mod
 from mmrag.pipeline.stages.fetch import FetchError, fetch
 from tests.conftest import SAMPLE_MP4
 
@@ -40,3 +42,33 @@ async def test_fetch_idempotent(isolated_data_dir: Path) -> None:
     b = await fetch(source=str(SAMPLE_MP4))
     assert a["content_hash"] == b["content_hash"]
     assert a["raw_path"] == b["raw_path"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_duplicate_url_cleans_second_raw_download(
+    isolated_data_dir: Path, monkeypatch
+) -> None:
+    payload = b"same downloaded bytes"
+    calls = 0
+
+    async def fake_fetch_url(_source: str, dest_dir: Path):
+        nonlocal calls
+        calls += 1
+        path = dest_dir / f"video-{calls}.mp4"
+        path.write_bytes(payload)
+        return path, {
+            "title": "Fixture",
+            "duration_s": 1.0,
+            "extractor": "fixture",
+            "webpage_url": "https://example.test/video",
+        }
+
+    monkeypatch.setattr(fetch_mod, "_fetch_url", fake_fetch_url)
+
+    first = await fetch(source="https://example.test/video")
+    second = await fetch(source="https://example.test/video")
+
+    assert first["content_hash"] == second["content_hash"]
+    assert first["raw_path"] == second["raw_path"]
+    assert Path(first["raw_path"]).exists()
+    assert list((get_settings().assets_dir / "raw").iterdir()) == []

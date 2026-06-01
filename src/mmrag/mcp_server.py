@@ -91,6 +91,7 @@ def _register_tools(server: FastMCP) -> None:
     async def ask(
         question: str,
         asset_id: str | None = None,
+        time_range: list[float] | None = None,
         top_k: int = 5,
         model: str = "gemma4:e4b",
         synthesize: bool = False,
@@ -101,6 +102,7 @@ def _register_tools(server: FastMCP) -> None:
         inp = AskInput(
             question=question,
             asset_id=asset_id,
+            time_range=tuple(time_range) if time_range is not None else None,
             top_k=top_k,
             model=model,
             synthesize=synthesize,

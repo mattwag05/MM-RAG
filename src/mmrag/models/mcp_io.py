@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # ingest
@@ -43,6 +43,12 @@ class AskInput(BaseModel):
     model: Literal["gemma4:e4b", "gemma4:e2b"] = "gemma4:e4b"
     synthesize: bool = False
 
+    @model_validator(mode="after")
+    def _time_range_ordered(self) -> AskInput:
+        if self.time_range is not None and self.time_range[0] > self.time_range[1]:
+            raise ValueError("time_range start must be <= end")
+        return self
+
 
 class Evidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -80,6 +86,13 @@ class SearchInput(BaseModel):
     asset_id: str | None = None
     top_k: int = Field(10, ge=1, le=100)
     mode: Literal["hybrid", "vector", "fts"] = "hybrid"
+    time_range: tuple[float, float] | None = None
+
+    @model_validator(mode="after")
+    def _time_range_ordered(self) -> SearchInput:
+        if self.time_range is not None and self.time_range[0] > self.time_range[1]:
+            raise ValueError("time_range start must be <= end")
+        return self
 
 
 class SearchHit(BaseModel):

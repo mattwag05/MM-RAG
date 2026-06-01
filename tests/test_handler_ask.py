@@ -79,3 +79,30 @@ async def test_ask_synthesizes_only_when_requested(monkeypatch, isolated_data_di
     assert out.answer == "The answer from evidence [1]."
     assert out.confidence == "medium"
     assert len(out.evidence) == 1
+
+
+async def test_ask_passes_time_range_into_search(monkeypatch, isolated_data_dir):
+    from mmrag.handlers import search as search_mod
+
+    async def fake_search(inp):
+        assert inp.time_range == (10.0, 20.0)
+        return SearchOutput(
+            hits=[
+                SearchHit(
+                    asset_id="asset-1",
+                    scene_id="10",
+                    start_s=12.0,
+                    end_s=13.0,
+                    score=0.25,
+                    snippet="evidence text",
+                    source_stream="fts_transcript",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(search_mod, "handle_search", fake_search)
+
+    out = await handle_ask(AskInput(question="what happened?", time_range=(10.0, 20.0)))
+
+    assert len(out.evidence) == 1
+    assert out.evidence[0].start_s == 12.0

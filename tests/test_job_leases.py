@@ -4,6 +4,8 @@ import asyncio
 
 import pytest
 
+from mmrag import worker as worker_mod
+from mmrag.config import Settings, reset_settings_for_tests
 from mmrag.db.connection import connect, transaction
 from mmrag.handlers.status import handle_status
 from mmrag.models.job import Stage
@@ -113,3 +115,34 @@ def test_worker_claim_pending_skips_fresh_running_jobs(isolated_data_dir) -> Non
     assert "queued-job" in pending
     assert "stale-running-job" in pending
     assert "fresh-running-job" not in pending
+
+
+@pytest.mark.asyncio
+async def test_worker_honors_configured_concurrency(isolated_data_dir, monkeypatch) -> None:
+    reset_settings_for_tests(Settings(data_dir=isolated_data_dir, worker_concurrency=2))
+    started: list[str] = []
+    started_two = asyncio.Event()
+    release = asyncio.Event()
+
+    def fake_claim_pending(limit: int = 16) -> list[str]:
+        assert limit <= 2
+        return [f"job-{idx}" for idx in range(limit)]
+
+    async def fake_run_one(job_id: str) -> None:
+        started.append(job_id)
+        if len(started) == 2:
+            started_two.set()
+        await release.wait()
+
+    monkeypatch.setattr(worker_mod, "_claim_pending", fake_claim_pending)
+    monkeypatch.setattr(worker_mod, "_run_one", fake_run_one)
+
+    task = asyncio.create_task(worker_mod.run_worker())
+    try:
+        await asyncio.wait_for(started_two.wait(), timeout=1.0)
+        await asyncio.sleep(0)
+        assert started == ["job-0", "job-1"]
+    finally:
+        release.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

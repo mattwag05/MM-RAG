@@ -9,7 +9,7 @@ import pytest
 from mmrag.config import get_settings
 from mmrag.pipeline.stages.fetch import fetch
 from mmrag.pipeline.stages.normalize import normalize
-from tests.conftest import SAMPLE_MP4
+from tests.conftest import SAMPLE_MP4, SAMPLE_WAV
 
 
 @pytest.mark.asyncio
@@ -58,3 +58,25 @@ async def test_normalize_idempotent(isolated_data_dir: Path) -> None:
     assert a["mezzanine_path"] == b["mezzanine_path"]
     # second pass should be a no-op (file already exists, ffmpeg not re-run)
     assert mtime_before == mtime_after
+
+
+@pytest.mark.asyncio
+async def test_normalize_audio_only_produces_transcribable_wav(
+    isolated_data_dir: Path,
+) -> None:
+    fetched = await fetch(source=str(SAMPLE_WAV))
+    asset_dir = get_settings().assets_dir / fetched["content_hash"]
+
+    result = await normalize(
+        raw_path=fetched["raw_path"],
+        content_hash=fetched["content_hash"],
+        asset_dir=asset_dir,
+    )
+
+    audio = Path(result["audio_path"]) if result["audio_path"] else None
+
+    assert result["mezzanine_path"] is None
+    assert audio is not None and audio.exists() and audio.suffix == ".wav"
+    assert result["duration_s"] == pytest.approx(3.0, abs=0.1)
+    assert result["width"] is None
+    assert result["height"] is None

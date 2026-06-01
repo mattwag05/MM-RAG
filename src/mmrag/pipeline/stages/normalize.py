@@ -44,6 +44,10 @@ def _video_stream(probe: dict) -> dict | None:
     return None
 
 
+def _has_audio_stream(probe: dict) -> bool:
+    return any(s.get("codec_type") == "audio" for s in probe.get("streams", []))
+
+
 def _parse_fps(rate: str | None) -> float | None:
     if not rate or rate == "0/0":
         return None
@@ -87,7 +91,7 @@ async def normalize(*, raw_path: str, content_hash: str, asset_dir: Path) -> dic
     mezz_path = asset_dir / "mezzanine.mp4"
     audio_path = asset_dir / "audio.wav"
 
-    if not mezz_path.exists():
+    if vstream is not None and not mezz_path.exists():
         log.info("ffmpeg.mezzanine", src=str(src), out=str(mezz_path))
         try:
             await run(
@@ -117,39 +121,36 @@ async def normalize(*, raw_path: str, content_hash: str, asset_dir: Path) -> dic
         except SubprocessFailed as e:
             raise NormalizeError("transcode_failed", str(e)) from e
 
-    if not audio_path.exists() and vstream is not None:
-        # Only attempt audio extraction if the source has audio streams.
-        has_audio = any(s.get("codec_type") == "audio" for s in probe.get("streams", []))
-        if has_audio:
-            log.info("ffmpeg.audio", src=str(src), out=str(audio_path))
-            try:
-                await run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-loglevel",
-                        "error",
-                        "-i",
-                        str(src),
-                        "-vn",
-                        "-ac",
-                        "1",
-                        "-ar",
-                        "16000",
-                        "-acodec",
-                        "pcm_s16le",
-                        str(audio_path),
-                    ],
-                    timeout_s=600.0,
-                )
-            except SubprocessFailed as e:
-                raise NormalizeError("audio_extract_failed", str(e)) from e
+    if not audio_path.exists() and _has_audio_stream(probe):
+        log.info("ffmpeg.audio", src=str(src), out=str(audio_path))
+        try:
+            await run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(src),
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-acodec",
+                    "pcm_s16le",
+                    str(audio_path),
+                ],
+                timeout_s=600.0,
+            )
+        except SubprocessFailed as e:
+            raise NormalizeError("audio_extract_failed", str(e)) from e
 
     return {
         "duration_s": duration_s,
         "fps": fps,
         "width": width,
         "height": height,
-        "mezzanine_path": str(mezz_path),
+        "mezzanine_path": str(mezz_path) if mezz_path.exists() else None,
         "audio_path": str(audio_path) if audio_path.exists() else None,
     }
