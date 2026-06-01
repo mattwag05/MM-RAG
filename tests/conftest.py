@@ -139,9 +139,37 @@ def _tts_available() -> str | None:
     return None
 
 
+def _media_has_duration(path: Path) -> bool:
+    """Return True when ffprobe can read a positive duration for a media file."""
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        return False
+    value = probe.stdout.strip()
+    if not value or value == "N/A":
+        return False
+    try:
+        return float(value) > 0
+    except ValueError:
+        return False
+
+
 def _generate_speech_fixture() -> bool:
     """Try to produce SPEECH_WAV. Returns True on success, False if no TTS tool."""
-    if SPEECH_WAV.exists():
+    if SPEECH_WAV.exists() and _media_has_duration(SPEECH_WAV):
         return True
     tool = _tts_available()
     if tool is None:
@@ -151,71 +179,78 @@ def _generate_speech_fixture() -> bool:
 
     if tool == "say":
         raw = tmp_dir / "_speech_raw.aiff"
-        subprocess.run(
-            ["say", "-o", str(raw), SPEECH_PHRASE],
-            check=True,
-        )
+        raw.unlink(missing_ok=True)
+        subprocess.run(["say", "-o", str(raw), SPEECH_PHRASE], check=True)
     else:  # espeak / espeak-ng
         raw = tmp_dir / "_speech_raw.wav"
+        raw.unlink(missing_ok=True)
+        subprocess.run([tool, "-w", str(raw), "-s", "140", SPEECH_PHRASE], check=True)
+
+    try:
+        if not _media_has_duration(raw):
+            return False
+
+        # Re-encode to 16 kHz mono pcm_s16le to match what the normalize stage
+        # would produce, so the transcribe stage sees its native input shape.
+        SPEECH_WAV.unlink(missing_ok=True)
         subprocess.run(
-            [tool, "-w", str(raw), "-s", "140", SPEECH_PHRASE],
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(raw),
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-acodec",
+                "pcm_s16le",
+                str(SPEECH_WAV),
+            ],
             check=True,
         )
-
-    # Re-encode to 16 kHz mono pcm_s16le to match what the normalize stage
-    # would produce, so the transcribe stage sees its native input shape.
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-loglevel",
-            "error",
-            "-i",
-            str(raw),
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-acodec",
-            "pcm_s16le",
-            str(SPEECH_WAV),
-        ],
-        check=True,
-    )
-    raw.unlink(missing_ok=True)
-    return True
+        return _media_has_duration(SPEECH_WAV)
+    finally:
+        raw.unlink(missing_ok=True)
 
 
 def _generate_speech_mp4() -> bool:
     """Wrap SPEECH_WAV in an MP4 container with a black video track."""
-    if SPEECH_MP4.exists():
+    if SPEECH_MP4.exists() and _media_has_duration(SPEECH_MP4):
         return True
     if not _generate_speech_fixture():
         return False
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-loglevel",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=black:s=320x240:r=30",
-            "-i",
-            str(SPEECH_WAV),
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-shortest",
-            str(SPEECH_MP4),
-        ],
-        check=True,
-    )
-    return True
+    SPEECH_MP4.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x240:r=30",
+                "-i",
+                str(SPEECH_WAV),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-shortest",
+                str(SPEECH_MP4),
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        SPEECH_MP4.unlink(missing_ok=True)
+        return False
+    return _media_has_duration(SPEECH_MP4)
 
 
 @pytest.fixture(scope="session", autouse=True)
