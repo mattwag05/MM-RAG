@@ -16,6 +16,7 @@ services:
       MMRAG_OLLAMA_URL: http://host.docker.internal:11434
       MMRAG_API_HOST: 0.0.0.0
       MMRAG_API_PORT: "8765"
+    command: ["sh", "-c", "mmrag init-db && mmrag worker & mmrag serve-api"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

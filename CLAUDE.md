@@ -1,7 +1,7 @@
 # CLAUDE.md — MM-RAG
 
 > Edge-optimized multimodal ingestion tool exposed as an MCP server.
-> Python 3.13, MIT-licensed, currently at v0.1.0 (M3 visual pipeline shipped).
+> Python 3.13, MIT-licensed, currently at v0.1.0 (M6 Pi deploy path shipped).
 
 ## What it is
 
@@ -75,7 +75,7 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 > `git push`); hydrate a fresh clone with `bd dolt pull`. The project's original
 > issue history was lost this way before the M5 machine transition.
 
-## Status (v0.1.0 — M3 visual pipeline)
+## Status (v0.1.0 — M6 Pi deploy path)
 
 What's wired end-to-end today:
 - `uv` project on Python 3.13, **setuptools** backend (NOT hatchling — see "Gotchas")
@@ -109,15 +109,18 @@ What's wired end-to-end today:
   TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
 - `ModelProvider` ABC with a request-time `OllamaProvider` implementation
-- Dockerfile + docker-compose for Mac dev (Pi-targeted M6)
+- Dockerfile + Compose paths for Mac REST dev and Pi/tailnet MCP deployment.
+  The Pi path runs MCP HTTP + worker as separate services, includes M3 visual
+  deps, and does not bundle Ollama/Gemma.
 
 Shipped:
 - **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
 - **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation.
 - **M5** — streamable-HTTP MCP transport for one shared tailnet service (`MMRAG_MCP_HOST` / `MMRAG_MCP_PORT` / `MMRAG_MCP_PATH`, protected by `MMRAG_MCP_TOKEN` when not loopback). Discovery metadata is served at `/.well-known/mcp-resource`.
+- **M6** — Pi / Pironman deploy path: MCP HTTP + worker Compose stack,
+  token-required tailnet bind, M3 visual runtime deps, no bundled Gemma/Ollama.
 
 Open milestones (see `bd ready` and `docs/pmf-rethink.md` for full rationale):
-- **M6** — Pi / Pironman deploy (lighter footprint: no bundled Gemma; depends on M5 transport)
 - **M7** — Social Bookmarks Triage REST integration (reference consumer, not core)
 - **MM-RAG 2.x follow-ups** — document ingestion, graph retrieval, and optional vector backends (tracked in Beads)
 
@@ -139,6 +142,11 @@ make worker                               # drain the job queue
 make test                                 # full test suite (73 tests)
 make lint                                 # ruff check  src tests (correctness/style gate)
 make format                               # ruff format src tests (separate formatter gate)
+make docker-build                         # build the multi-arch-capable local image
+make docker-up                            # Mac REST dev compose path (:8765)
+make docker-pi-config                     # validate Pi/tailnet compose config
+make docker-pi-up                         # run Pi/tailnet MCP + worker stack (:8766)
+make docker-pi-down                       # stop Pi/tailnet stack
 ```
 
 In a **sandboxed shell** (e.g. Claude Code's Bash), if OCR tests fail because

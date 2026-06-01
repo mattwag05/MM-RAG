@@ -12,10 +12,11 @@ AI agent can actually reason about. It's deliberately small, MIT-licensed, and
 biased toward retrieval over brute-force frame inference — so the "smart"
 multimodal model only sees the few seconds that actually matter.
 
-> **Status: v0.1.0 (M4 evidence packs shipped).**
+> **Status: v0.1.0 (M6 Pi deploy path shipped).**
 > Stages 1–7 wired end-to-end: fetch → normalize → scene_detect → transcribe
 > → frame_sample → ocr → embed. `ask` is evidence-first by default, with
-> request-time synthesis opt-in. See the [roadmap](#roadmap).
+> request-time synthesis opt-in. Streamable HTTP MCP is the shared tailnet
+> transport. See the [roadmap](#roadmap).
 
 ---
 
@@ -44,7 +45,7 @@ which clip in your library is the one where the onboarding modal appears.
 
 ---
 
-## What works today (M3)
+## What works today
 
 - ✅ `ingest(local_file)` — sync, full pipeline through ffmpeg normalize, asset row populated with `content_hash`, `duration_s`, `fps`, `width`, `height`, `mezzanine_path`, `audio_path`
 - ✅ `ingest(url)` via `yt-dlp` — best-effort URL fetch (any `yt-dlp`-supported source)
@@ -66,6 +67,8 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ `search(...)` supports three modes: `fts` (BM25 over transcript + OCR),
   `vector` (SigLIP cosine over frame/transcript embeddings), and `hybrid`
   (RRF fusion across all four streams).
+- ✅ Pi/tailnet Docker Compose path for MCP HTTP + worker, with no bundled
+  Ollama/Gemma dependency.
 
 ---
 
@@ -193,6 +196,38 @@ Discovery metadata is public at `/.well-known/mcp-resource`; the MCP
 endpoint itself expects `Authorization: Bearer <MMRAG_MCP_TOKEN>`. The
 FastAPI REST server remains an admin/debug mirror, not the shared agent
 transport.
+
+### Pi / Pironman Docker deploy
+
+The Pi deployment is MCP-first: one shared tailnet service on port `8766`
+plus a worker draining the same SQLite volume. It includes the visual
+retrieval stack (`m3-visual`, ffmpeg, Tesseract) but does not bundle Ollama,
+Gemma weights, or the optional `reasoning` extra.
+
+Local loopback validation:
+
+```bash
+export MMRAG_MCP_TOKEN='dev-secret'
+export MMRAG_MCP_PUBLIC_URL=http://127.0.0.1:8766
+make docker-pi-config
+make docker-build
+make docker-pi-up
+curl -s http://127.0.0.1:8766/.well-known/mcp-resource | jq
+make docker-pi-down
+```
+
+Pironman/tailnet example:
+
+```bash
+export MMRAG_MCP_TOKEN='shared-secret'
+export MMRAG_PUBLISH_HOST='100.x.y.z'            # Pironman Tailscale IP
+export MMRAG_MCP_PUBLIC_URL='http://100.x.y.z:8766'
+make docker-pi-up
+```
+
+`MMRAG_MCP_TOKEN` is required because the container binds MCP to
+`0.0.0.0`. Do not publish the REST mirror in this stack; keep REST local for
+admin/debug workflows.
 
 ---
 
@@ -338,7 +373,7 @@ independently testable; the project pauses for review between them.
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, and `content_items` projects scenes/segments/frames into a unified foundation. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
-| M6 | 🧱 | Raspberry Pi / Pironman deploy (lighter footprint, depends on M5 transport) |
+| **M6** | ✅ | Raspberry Pi / Pironman deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
 | M7 | 🧱 | Social Bookmarks Triage REST integration as a reference consumer |
 
 **Deferred to v0.2+** (tracked, not forgotten): speaker diarization,
@@ -355,7 +390,8 @@ MM-RAG/
 ├── README.md
 ├── LICENSE                    # MIT
 ├── Dockerfile
-├── docker-compose.yml         # mmrag + bind-mount + host Ollama
+├── docker-compose.yml         # Mac REST dev stack
+├── docker-compose.pi.yml      # Pi/tailnet MCP + worker stack
 ├── docs/
 │   └── architecture.md        # in-repo design (slim copy of the planning spec)
 ├── tests/
