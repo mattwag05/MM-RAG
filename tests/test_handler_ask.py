@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from mmrag.handlers.ask import handle_ask
+from mmrag.models.mcp_io import AskInput, SearchHit, SearchOutput
+
+
+async def test_ask_returns_evidence_only_by_default(monkeypatch):
+    from mmrag.handlers import search as search_mod
+
+    async def fake_search(_inp):
+        return SearchOutput(
+            hits=[
+                SearchHit(
+                    asset_id="asset-1",
+                    scene_id="10",
+                    start_s=1.0,
+                    end_s=2.0,
+                    score=0.25,
+                    snippet="hello from the transcript",
+                    source_stream="fts_transcript",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(search_mod, "handle_search", fake_search)
+
+    out = await handle_ask(AskInput(question="what happened?"))
+
+    assert out.answer is None
+    assert len(out.evidence) == 1
+    assert out.evidence[0].asset_id == "asset-1"
+    assert out.evidence[0].source_stream == "fts_transcript"
+    assert out.evidence[0].score == 0.25
+    assert out.evidence[0].transcript_snippet == "hello from the transcript"
+
+
+async def test_ask_synthesizes_only_when_requested(monkeypatch):
+    from mmrag.handlers import ask as ask_mod
+    from mmrag.handlers import search as search_mod
+
+    async def fake_search(_inp):
+        return SearchOutput(
+            hits=[
+                SearchHit(
+                    asset_id="asset-1",
+                    scene_id="10",
+                    start_s=1.0,
+                    end_s=2.0,
+                    score=0.25,
+                    snippet="evidence text",
+                    source_stream="fts_transcript",
+                )
+            ]
+        )
+
+    async def fake_generate(_inp, evidence):
+        assert len(evidence) == 1
+        return "The answer from evidence [1]."
+
+    monkeypatch.setattr(search_mod, "handle_search", fake_search)
+    monkeypatch.setattr(ask_mod, "_generate_answer", fake_generate)
+
+    out = await handle_ask(AskInput(question="what happened?", synthesize=True))
+
+    assert out.answer == "The answer from evidence [1]."
+    assert out.confidence == "medium"
+    assert len(out.evidence) == 1

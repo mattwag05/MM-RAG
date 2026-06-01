@@ -27,7 +27,6 @@ dependencies = [
   "mcp>=1.2",
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
-  "httpx>=0.27",
   "structlog>=24.4",
   "typer>=0.13",
   "yt-dlp>=2024.11.04",
@@ -50,6 +49,9 @@ m3-visual = [
   "sqlite-vec>=0.1.0",
   "numpy>=1.26",
   "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
+]
+reasoning = [
+  "httpx>=0.27",
 ]
 
 [project.scripts]

@@ -41,6 +41,7 @@ class AskInput(BaseModel):
     time_range: tuple[float, float] | None = None
     top_k: int = Field(5, ge=1, le=50)
     model: Literal["gemma4:e4b", "gemma4:e2b"] = "gemma4:e4b"
+    synthesize: bool = False
 
 
 class Evidence(BaseModel):
@@ -48,8 +49,12 @@ class Evidence(BaseModel):
 
     asset_id: str
     scene_id: str | None = None
+    frame_id: str | None = None
     start_s: float
     end_s: float
+    source_stream: str = "hybrid"
+    snippet: str | None = None
+    score: float | None = None
     summary: str | None = None
     ocr_snippet: str | None = None
     transcript_snippet: str | None = None
@@ -58,7 +63,7 @@ class Evidence(BaseModel):
 class AskOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    answer: str
+    answer: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"] = "low"
 
@@ -82,10 +87,12 @@ class SearchHit(BaseModel):
 
     asset_id: str
     scene_id: str | None = None
+    frame_id: str | None = None
     start_s: float
     end_s: float
     score: float
     snippet: str | None = None
+    source_stream: str = "hybrid"
 
 
 class SearchOutput(BaseModel):

@@ -29,9 +29,9 @@ class StreamChunk:
 class ModelProvider(ABC):
     """Abstraction over multimodal text-generation backends.
 
-    M1 ships only the OllamaProvider shell. The interface is the slot that
-    a future LLaVA-Video or `gemma4:video` provider will plug into without
-    touching the call sites.
+    OllamaProvider lives behind the optional reasoning path. This interface
+    is the slot that a future LLaVA-Video or `gemma4:video` provider will
+    plug into without touching the call sites.
     """
 
     @abstractmethod

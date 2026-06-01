@@ -43,6 +43,7 @@ class _StreamHit:
     # For vec hits: None (will be filled from scenes table).
     start_s: float | None = field(default=None)
     end_s: float | None = field(default=None)
+    frame_id: int | None = field(default=None)
     # Source tag — used by FTS dedup to prefer fts_transcript over fts_scenes
     # when both match the same scene_id (fts_transcript has segment timestamps).
     source: str = field(default="")
@@ -137,16 +138,20 @@ def _fts_scenes_stream(query: str, asset_id: str | None) -> list[_StreamHit]:
 def _vec_frames_stream(qvec: list[float], asset_id: str | None) -> list[_StreamHit]:
     sql = """
         SELECT f.scene_id AS scene_id,
+               vf.rowid AS frame_id,
                vf.distance AS distance
           FROM vec_frames vf
           JOIN frames f ON f.id = vf.rowid
-         WHERE vf.embedding MATCH ?
+         WHERE {asset_filter}
+           vf.embedding MATCH ?
            AND k = ?
     """
-    params: list = [_pack(qvec), _PER_STREAM_TOP]
     if asset_id is not None:
-        sql += " AND f.asset_id = ?"
-        params.append(asset_id)
+        sql = sql.format(asset_filter="vf.asset_id = ? AND")
+        params: list = [asset_id, _pack(qvec), _PER_STREAM_TOP]
+    else:
+        sql = sql.format(asset_filter="")
+        params = [_pack(qvec), _PER_STREAM_TOP]
     with connect() as conn:
         try:
             rows = conn.execute(sql, params).fetchall()
@@ -160,6 +165,7 @@ def _vec_frames_stream(qvec: list[float], asset_id: str | None) -> list[_StreamH
             # for unit vectors, cosine_sim = 1 - distance^2 / 2.
             score=1.0 - (float(r["distance"]) ** 2) / 2.0,
             snippet=None,
+            frame_id=int(r["frame_id"]),
             source="vec_frames",
         )
         for r in rows
@@ -173,13 +179,16 @@ def _vec_transcript_stream(qvec: list[float], asset_id: str | None) -> list[_Str
                vt.distance AS distance
           FROM vec_transcript vt
           JOIN transcript_segments ts ON ts.id = vt.rowid
-         WHERE vt.embedding MATCH ?
+         WHERE {asset_filter}
+           vt.embedding MATCH ?
            AND k = ?
     """
-    params: list = [_pack(qvec), _PER_STREAM_TOP]
     if asset_id is not None:
-        sql += " AND ts.asset_id = ?"
-        params.append(asset_id)
+        sql = sql.format(asset_filter="vt.asset_id = ? AND")
+        params: list = [asset_id, _pack(qvec), _PER_STREAM_TOP]
+    else:
+        sql = sql.format(asset_filter="")
+        params = [_pack(qvec), _PER_STREAM_TOP]
     with connect() as conn:
         try:
             rows = conn.execute(sql, params).fetchall()
@@ -216,13 +225,20 @@ def _scene_timing(scene_ids: list[int]) -> dict[int, tuple[str, float, float]]:
     }
 
 
-def _rrf_fuse(streams: list[list[_StreamHit]], top_k: int) -> list[tuple[int, float, str | None]]:
-    """Return [(scene_id, fused_score, best_snippet), ...] top_k."""
+def _rrf_fuse(
+    streams: list[list[_StreamHit]], top_k: int
+) -> list[tuple[int, float, str | None, str, int | None]]:
+    """Return [(scene_id, fused_score, best_snippet, best_source, frame_id), ...] top_k."""
     fused: dict[int, float] = {}
     snippets: dict[int, tuple[float, str | None]] = {}
+    sources: dict[int, tuple[float, str, int | None]] = {}
     for hits in streams:
         for rank, hit in enumerate(hits):
-            fused[hit.scene_id] = fused.get(hit.scene_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
+            contribution = 1.0 / (_RRF_K + rank + 1)
+            fused[hit.scene_id] = fused.get(hit.scene_id, 0.0) + contribution
+            cur_source = sources.get(hit.scene_id)
+            if cur_source is None or contribution > cur_source[0]:
+                sources[hit.scene_id] = (contribution, hit.source, hit.frame_id)
             cur = snippets.get(hit.scene_id)
             # Snippet is picked by "highest raw score among contributing streams."
             # BM25 scores (negated, so positive) and cosine scores (0.0–1.0) live
@@ -231,7 +247,16 @@ def _rrf_fuse(streams: list[list[_StreamHit]], top_k: int) -> list[tuple[int, fl
             if hit.snippet and (cur is None or hit.score > cur[0]):
                 snippets[hit.scene_id] = (hit.score, hit.snippet)
     ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-    return [(sid, score, snippets.get(sid, (0.0, None))[1]) for sid, score in ordered]
+    return [
+        (
+            sid,
+            score,
+            snippets.get(sid, (0.0, None))[1],
+            sources.get(sid, (0.0, "hybrid", None))[1],
+            sources.get(sid, (0.0, "hybrid", None))[2],
+        )
+        for sid, score in ordered
+    ]
 
 
 async def handle_search(inp: SearchInput) -> SearchOutput:
@@ -282,12 +307,14 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
                 SearchHit(
                     asset_id=scene_meta[h.scene_id][0],
                     scene_id=str(h.scene_id),
+                    frame_id=str(h.frame_id) if h.frame_id is not None else None,
                     # Use segment-level timestamps when available (fts_transcript),
                     # fall back to scene-level (fts_scenes).
                     start_s=h.start_s if h.start_s is not None else scene_meta[h.scene_id][1],
                     end_s=h.end_s if h.end_s is not None else scene_meta[h.scene_id][2],
                     score=h.score,
                     snippet=h.snippet,
+                    source_stream=h.source,
                 )
                 for h in ordered
                 if h.scene_id in scene_meta
@@ -308,10 +335,12 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
                 SearchHit(
                     asset_id=scene_meta[h.scene_id][0],
                     scene_id=str(h.scene_id),
+                    frame_id=str(h.frame_id) if h.frame_id is not None else None,
                     start_s=scene_meta[h.scene_id][1],
                     end_s=scene_meta[h.scene_id][2],
                     score=h.score,
                     snippet=h.snippet or "[visual match]",
+                    source_stream=h.source,
                 )
                 for h in ordered_v
                 if h.scene_id in scene_meta
@@ -320,18 +349,20 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
 
     # hybrid: RRF fusion over all streams
     fused = _rrf_fuse(streams, inp.top_k)
-    scene_meta = _scene_timing([sid for sid, _, _ in fused])
+    scene_meta = _scene_timing([sid for sid, _, _, _, _ in fused])
     return SearchOutput(
         hits=[
             SearchHit(
                 asset_id=scene_meta[sid][0],
                 scene_id=str(sid),
+                frame_id=str(frame_id) if frame_id is not None else None,
                 start_s=scene_meta[sid][1],
                 end_s=scene_meta[sid][2],
                 score=score,
                 snippet=snippet or "[visual match]",
+                source_stream=source,
             )
-            for sid, score, snippet in fused
+            for sid, score, snippet, source, frame_id in fused
             if sid in scene_meta
         ]
     )

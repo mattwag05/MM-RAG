@@ -2,8 +2,9 @@
 
 > **Edge-optimized multimodal RAG over video, audio, and images — exposed as an MCP server.**
 > Ingest a YouTube Short, a TikTok, a Reels link, or a local screen recording.
-> Get back a searchable transcript, a scene map, OCR, and a Gemma-4 reasoning layer
-> sitting on top of a single SQLite file. Runs on your Mac. Designed to also run
+> Get back a searchable transcript, a scene map, OCR, and evidence packs
+> sitting on top of a single SQLite file. Optional synthesis can call Gemma 4
+> via Ollama. Runs on your Mac. Designed to also run
 > on a Raspberry Pi.
 
 `mmrag` is a single self-hosted process that turns raw video into something an
@@ -11,10 +12,10 @@ AI agent can actually reason about. It's deliberately small, MIT-licensed, and
 biased toward retrieval over brute-force frame inference — so the "smart"
 multimodal model only sees the few seconds that actually matter.
 
-> **Status: v0.1.0 (M3 visual pipeline shipped).**
+> **Status: v0.1.0 (M4 evidence packs shipped).**
 > Stages 1–7 wired end-to-end: fetch → normalize → scene_detect → transcribe
-> → frame_sample → ocr → embed. Stage 8 (summarize) is still a stub and ships
-> in M4. See the [roadmap](#roadmap).
+> → frame_sample → ocr → embed. `ask` is evidence-first by default, with
+> request-time synthesis opt-in. See the [roadmap](#roadmap).
 
 ---
 
@@ -32,8 +33,9 @@ which clip in your library is the one where the onboarding modal appears.
 - **Retrieval first, reasoning second** — `mmrag` doesn't shove a 10-minute
   video into a multimodal model. It splits the video into scenes, transcribes
   the audio with `faster-whisper`, OCRs sampled frames, and embeds everything
-  into a hybrid (vector + BM25) index. Only the top-k retrieved evidence is
-  handed to Gemma 4 for a final answer.
+  into a hybrid (vector + BM25) index. `ask` returns the top-k retrieved
+  evidence by default; only `synthesize=true` hands that evidence to Gemma 4
+  for a final answer.
 - **MCP-native** — four sharp tools: `ingest`, `ask`, `search`, `status`. Wire
   them into Claude Code, Claude Desktop, or any MCP client.
 - **MIT-clean** — every Python dependency is MIT, Apache-2, BSD, or
@@ -58,7 +60,8 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Pluggable `ModelProvider` slot for the eventual VLM swap
 - ✅ Pydantic schema contract tests for every MCP tool's input/output
 - ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
-- 🧱 `ask(...)` returns a valid-shape placeholder — real evidence assembly + Gemma inference lands in M4
+- ✅ `ask(...)` returns rich evidence packs by default (`answer=null`) and can
+  synthesize through Ollama/Gemma when `synthesize=true`
 - ✅ `search(...)` supports three modes: `fts` (BM25 over transcript + OCR),
   `vector` (SigLIP cosine over frame/transcript embeddings), and `hybrid`
   (RRF fusion across all four streams).
@@ -132,13 +135,16 @@ first run via `ffmpeg lavfi` sources into `tests/fixtures/` and gitignored.
 ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
   → { status, asset_id, job_id, summary, error }
 
-ask(question, asset_id=None, time_range=None, top_k=5, model="gemma4:e4b")
+ask(question, asset_id=None, time_range=None, top_k=5,
+    model="gemma4:e4b", synthesize=False)
   → { answer, evidence: [{ asset_id, scene_id, start_s, end_s,
+                           source_stream, snippet, score,
                            summary, ocr_snippet, transcript_snippet }],
       confidence }
 
 search(query, asset_id=None, top_k=10, mode="hybrid"|"vector"|"fts")
-  → { hits: [{ asset_id, scene_id, start_s, end_s, score, snippet }] }
+  → { hits: [{ asset_id, scene_id, frame_id, start_s, end_s,
+               score, snippet, source_stream }] }
 
 status(job_id)
   → { status, stage, progress, asset_id, error }
@@ -191,7 +197,7 @@ Then in the chat: *"Ingest <some YouTube URL>, then ask what happens at the
                 │ 5. frame_sample (scene midpoint+1fps)   [M3]        │
                 │ 6. ocr          (Tesseract)             [M3]        │
                 │ 7. embed        (SigLIP image+text)     [M3]        │
-                │ 8. summarize    (gemma4:e2b)            [M4]        │
+                │ 8. summarize    (stub; scene summaries follow-up)    │
                 └────────────────┬───────────────────────────────────┘
                                  │
                         ┌────────▼─────────┐
@@ -201,12 +207,12 @@ Then in the chat: *"Ingest <some YouTube URL>, then ask what happens at the
                         └────────┬─────────┘
                                  │
                         ┌────────▼─────────────────────────────┐
-                        │ Retrieval + reasoning (M4)           │
+                        │ Retrieval + optional reasoning       │
                         │ - sqlite-vec ANN on scenes/frames    │
                         │ - FTS5 BM25 on transcript/scenes     │
                         │ - RRF hybrid rerank                  │
-                        │ - evidence pack → gemma4:e4b         │
-                        │ - returns answer + timestamps        │
+                        │ - evidence pack by default           │
+                        │ - synthesize=true → Ollama/Gemma     │
                         └─────────────────────────────────────┘
 ```
 
@@ -308,9 +314,10 @@ independently testable; the project pauses for review between them.
 | **M1** | ✅ | Walking skeleton: project layout, `uv` + Python 3.13, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
 | **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
-| M4 | 🧱 | Per-scene summaries via `gemma4:e2b` + `ask` evidence-pack assembly + final answer via `gemma4:e4b` with `e2b` fallback |
-| M5 | 🧱 | Social Bookmarks Triage REST integration (`push_to_sbt=true`, idempotent `postId` hash, Prisma migration on the SBT side adding `transcriptText` to its FTS) |
-| M6 | 🧱 | Raspberry Pi deploy (multi-arch Docker, FIFO+systemd harness, ARM-tuned defaults) |
+| **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, and `content_items` projects scenes/segments/frames into a unified foundation. |
+| M5 | 🧱 | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service |
+| M6 | 🧱 | Raspberry Pi / Pironman deploy (lighter footprint, depends on M5 transport) |
+| M7 | 🧱 | Social Bookmarks Triage REST integration as a reference consumer |
 
 **Deferred to v0.2+** (tracked, not forgotten): speaker diarization,
 PaddleOCR, dedicated video VLM, UI/screen-recording mode with dense frame
@@ -341,22 +348,24 @@ MM-RAG/
     ├── mcp_server.py          # FastMCP app (4 tools)
     ├── api.py                 # FastAPI REST mirror
     ├── worker.py              # job-queue drain
-    ├── sbt_client.py          # Social Bookmarks Triage REST client (M5)
+    ├── sbt_client.py          # Social Bookmarks Triage REST client (M7)
     ├── db/
     │   ├── connection.py      # WAL pragma, transaction helpers
     │   ├── migrations.py      # idempotent migration runner
     │   └── sql/
     │       ├── 0001_m1_init.sql
     │       ├── 0002_m2_speech.sql
-    │       └── 0003_m3_visual.sql
+    │       ├── 0003_m3_visual.sql
+    │       ├── 0004_vec_asset_filters.sql
+    │       └── 0005_content_items.sql
     ├── models/
     │   ├── asset.py
     │   ├── job.py             # JobStatus, Stage enums
     │   └── mcp_io.py          # IngestInput/Output, AskInput/Output, ...
     ├── handlers/
     │   ├── ingest.py          # sync-fast / async-slow branch
-    │   ├── ask.py             # placeholder (M4)
-    │   ├── search.py          # placeholder (M2/M3)
+    │   ├── ask.py             # evidence packs + synth opt-in
+    │   ├── search.py          # FTS/vector/hybrid retrieval
     │   └── status.py
     ├── pipeline/
     │   ├── runner.py          # orchestrates stages, persists state per stage
@@ -369,10 +378,10 @@ MM-RAG/
     │       ├── frame_sample.py    # M3 — scene midpoints + stride sampling
     │       ├── ocr.py             # M3 — Tesseract PSM 6
     │       ├── embed.py           # M3 — SigLIP-base-patch16-256 (768-d)
-    │       └── summarize.py       # stub → M4
+    │       └── summarize.py       # scene-summary follow-up
     └── providers/
         ├── base.py            # ModelProvider ABC
-        └── ollama.py          # OllamaProvider shell (M4 ships the real impl)
+        └── ollama.py          # request-time Ollama chat provider
 ```
 
 ---

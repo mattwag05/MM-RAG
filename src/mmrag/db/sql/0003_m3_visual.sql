@@ -53,15 +53,18 @@ CREATE INDEX IF NOT EXISTS idx_frames_scene_id ON frames(scene_id);
 -- Enforced in application code (the runner persist helpers).
 
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_frames USING vec0(
-    embedding float[768]
+    embedding float[768],
+    asset_id TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_scenes USING vec0(
-    embedding float[768]
+    embedding float[768],
+    asset_id TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_transcript USING vec0(
-    embedding float[768]
+    embedding float[768],
+    asset_id TEXT
 );
 
 -- ---------- fts_scenes ----------

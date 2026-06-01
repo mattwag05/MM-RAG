@@ -134,18 +134,19 @@ own numbered SQL file under `src/mmrag/db/sql/`.
 ```
 ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
 ask(question, asset_id=None, time_range=None, top_k=5,
-    synthesize=False, model=None)                              # post-M4
+    synthesize=False, model="gemma4:e4b")
 search(query, asset_id=None, top_k=10, mode="hybrid"|"vector"|"fts")
 status(job_id)
 ```
 
-**Evidence-first contract (post-M4).** Both `ask` and `search` return
-rich `Evidence` objects: `{asset_id, scene_id, start_s, end_s, summary,
-ocr_snippet, transcript_snippet}`. `ask` additionally returns an
-optional `answer: str | None` and a `confidence` field — `answer` is
-only populated when the caller passes `synthesize=True` AND the
-`[reasoning]` extra is installed. This keeps the core install lean
-(no Ollama hard dep) and matches the PMF thesis that edge agents
+**Evidence-first contract.** `ask` returns rich `Evidence` objects:
+`{asset_id, scene_id, frame_id, start_s, end_s, source_stream, snippet,
+score, summary, ocr_snippet, transcript_snippet}`. `search` returns a
+compatible hit superset with `source_stream`, `frame_id`, `snippet`, and
+`score`. `ask` additionally returns an optional `answer: str | None` and
+a `confidence` field — `answer` is only populated when the caller passes
+`synthesize=True`. This keeps the core contract evidence-first and
+matches the PMF thesis that edge agents
 (Talia, Gus, Kit, Claude Code) already have their own LLMs and prefer
 retrieved evidence packs to yet another inference layer.
 
@@ -184,15 +185,15 @@ the full rationale behind the current milestone ordering.
   a plain FTS5 `fts_scenes` index maintained by application code, and
   hybrid RRF retrieval across FTS transcript / FTS scenes / vector frames /
   vector transcript. Renamed `shots` → `scenes` across the schema.
-  Follow-up: `MM-RAG-dw0` (sqlite-vec k= pre-filter bug for multi-asset
-  indexes) and `MM-RAG-eb8` (natural-image acceptance fixture).
-- **M4** brings evidence packs: rescoped from the original "Reasoning
+  Follow-up: `MM-RAG-eb8` (natural-image acceptance fixture).
+- **M4** **(shipped)** brings evidence packs: rescoped from the original "Reasoning
   pipeline" to make `ask` evidence-only by default (`answer: str |
-  None`, new `synthesize: bool = False` flag), enrich `search` to
-  return full `Evidence` objects, and move `OllamaProvider` +
-  answer-synthesis into an optional `[reasoning]` pyproject extra.
-  Stage 8 `summarize` stays as a deterministic indexing artifact
-  (per-scene short-text distillation stored in `scenes.summary`).
+  None`, new `synthesize: bool = False` flag), enrich `search` hits
+  with evidence metadata, fix sqlite-vec asset scoping with metadata
+  prefilters, and add the `content_items` projection over scenes,
+  transcript segments, and frames. Stage 8 `summarize` remains a
+  deterministic indexing follow-up (per-scene short-text distillation
+  stored in `scenes.summary`).
 - **M5** brings streamable-HTTP MCP transport for tailnet-hosted
   deployment. Promoted from P3 because the PMF thesis *is* shared
   index over MCP, and stdio-only silos contradict that.

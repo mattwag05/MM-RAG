@@ -142,6 +142,7 @@ def test_persist_vectors_writes_all_three_vec_tables(tmp_path):
         v_seg[2] = 1.0
 
         _persist_vectors(
+            asset_id=asset_id,
             frame_id_map=frame_id_map,
             scene_id_by_idx=scene_id_by_idx,
             segment_id_by_idx=seg_id_by_idx,
@@ -154,6 +155,13 @@ def test_persist_vectors_writes_all_three_vec_tables(tmp_path):
             assert conn.execute("SELECT COUNT(*) AS n FROM vec_frames").fetchone()["n"] == 1
             assert conn.execute("SELECT COUNT(*) AS n FROM vec_scenes").fetchone()["n"] == 1
             assert conn.execute("SELECT COUNT(*) AS n FROM vec_transcript").fetchone()["n"] == 1
+            assert (
+                conn.execute(
+                    "SELECT asset_id FROM vec_frames WHERE rowid = ?",
+                    (next(iter(frame_id_map.values())),),
+                ).fetchone()["asset_id"]
+                == asset_id
+            )
 
         # Roundtrip verification — unpack the stored blob with explicit
         # little-endian format and confirm the first coefficient matches.

@@ -82,9 +82,9 @@ What's wired end-to-end today:
 - FastMCP stdio server with all 4 tools (`mmrag serve-mcp`)
 - FastAPI REST mirror on `:8765` (`mmrag serve-api`)
 - Background worker that drains the job queue (`mmrag worker`)
-- SQLite WAL store, migration runner, M1 + M2 + M3 schema (`assets`, `jobs`,
+- SQLite WAL store, migration runner, M1–M4 foundation schema (`assets`, `jobs`,
   `scenes`, `frames`, `transcript_segments`, `fts_transcript`, `fts_scenes`,
-  `vec_frames`, `vec_scenes`, `vec_transcript`)
+  `vec_frames`, `vec_scenes`, `vec_transcript`, `content_items`)
 - Pipeline stages 1–7 live: fetch (yt-dlp / local file) → ffmpeg normalize →
   PySceneDetect `ContentDetector` → faster-whisper `tiny.en` int8 →
   frame sampling (scene midpoints + 2s stride on long scenes) →
@@ -94,23 +94,30 @@ What's wired end-to-end today:
 - Runner persists scenes + frames + transcript segments incrementally after each
   stage (idempotent via UNIQUE keys, so re-ingest is a no-op)
 - `search` tool runs hybrid RRF over FTS transcript / FTS scenes / vec frames /
-  vec transcript, scoped by optional `asset_id` and `top_k`, snippet-highlighted
+  vec transcript, scoped by optional `asset_id` and `top_k`, snippet-highlighted.
+  sqlite-vec asset scoping uses metadata-column prefilters so `k=` is scoped
+  before nearest-neighbor selection.
+- `ask` returns evidence packs by default (`answer=None`) and only calls the
+  configured Ollama/Gemma backend when `synthesize=True`.
+- `content_items` is a persisted projection over scenes, transcript segments,
+  and frames; it is the foundation for document ingestion and graph retrieval.
 - Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
   ingest → search round-trip using a TTS-generated speech fixture
-  (61/61 passing on macOS with `say`; integration tests auto-skip if no
+  (65/65 passing on macOS with `say`; integration tests auto-skip if no
   TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
-- `ModelProvider` ABC with `OllamaProvider` shell (M4 ships the real impl)
+- `ModelProvider` ABC with a request-time `OllamaProvider` implementation
 - Dockerfile + docker-compose for Mac dev (Pi-targeted M6)
 
 Shipped:
 - **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, pytesseract, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
+- **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation.
 
 Open milestones (see `bd ready` and `docs/pmf-rethink.md` for full rationale):
-- **M4** — evidence packs, synth opt-in (`ask` returns rich evidence by default; `answer` is `str | None`; Gemma/Ollama moves to an optional `[reasoning]` extra)
 - **M5** — streamable-HTTP MCP transport (tailnet-hosted shared service on Pironman; all edge agents hit one index)
 - **M6** — Pi / Pironman deploy (lighter footprint: no bundled Gemma; depends on M5 transport)
 - **M7** — Social Bookmarks Triage REST integration (reference consumer, not core)
+- **MM-RAG 2.x follow-ups** — document ingestion, graph retrieval, and optional vector backends (tracked in Beads)
 
 v1 is a **single-tenant tailnet service**: one MM-RAG instance, shared bearer token in env, Tailscale-only bind. No caller IDs, no per-caller quotas, no asset-visibility scoping. Multi-tenant auth is post-v1. See `docs/pmf-rethink.md` for the thesis and audit behind this ordering.
 
@@ -248,13 +255,11 @@ See `docs/architecture.md` for the diagram and the full data flow.
   `struct.pack(f"<{len(v)}f", *v)` — native order silently corrupts vectors
   on big-endian hosts. The runner's `_pack_vec` and the search handler's
   `_pack` both use the `<` prefix.
-- **sqlite-vec `k=` is a GLOBAL pre-filter — `asset_id` WHERE runs AFTER the
-  KNN.** Queries scoped by `asset_id` silently under-deliver the moment the
-  index contains more than one asset. Workaround: add an auxiliary column to
-  the `vec0` declaration (`CREATE VIRTUAL TABLE vec_frames USING vec0(embedding
-  float[768], +asset_id TEXT)`) and filter via the auxiliary column in the
-  MATCH query. Tracked in `MM-RAG-dw0`; fix required before M5 multi-tenant
-  deployment.
+- **sqlite-vec `k=` is a GLOBAL pre-filter unless `asset_id` is a vec0 metadata
+  constraint.** `vec_frames`, `vec_scenes`, and `vec_transcript` declare
+  `asset_id TEXT` inside vec0 (not `+asset_id TEXT`), and scoped KNN SQL puts
+  `asset_id = ?` before `embedding MATCH ?`. Plain JOIN filters after MATCH
+  reintroduce the under-delivery bug fixed in `0004_vec_asset_filters.sql`.
 - **open_clip's SigLIP HFTokenizer pulls in `transformers` at runtime.**
   `transformers>=4.40` is already in the `m3-visual` extra. Don't remove it
   thinking open_clip is self-contained — it isn't for the SigLIP variants.
@@ -300,7 +305,7 @@ look at these references rather than reinventing:
 
 ## Integration target: Social Bookmarks Triage
 
-M5 will push enrichment payloads to SBT via REST:
+M7 will push enrichment payloads to SBT via REST:
 
 - SBT lives at `~/Desktop/Projects/Social Bookmarks Triage` (Next.js + Prisma + SQLite, keyed on `postId`)
 - Existing pattern to follow: `app/api/import/url/route.ts`
