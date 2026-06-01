@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 from mmrag.pipeline.stages.frame_sample import frame_sample
 
@@ -45,6 +44,12 @@ async def test_frame_sample_midpoint_per_scene(tmp_path):
     assert len(frames) == 3
     t_values = [f["t_s"] for f in frames]
     assert t_values == [1.0, 3.0, 5.0]
+    # Import PIL inside the test (not at module top level) so collection
+    # survives on a core-only install: this module is marked m3_visual and the
+    # conftest skips it, but a top-level `from PIL import Image` would raise at
+    # COLLECTION time — before the skip can apply. Matches tests/test_pipeline_ocr.py.
+    from PIL import Image
+
     for f in frames:
         p = Path(f["path"])
         assert p.exists() and p.stat().st_size > 0

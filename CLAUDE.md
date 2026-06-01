@@ -244,6 +244,23 @@ See `docs/architecture.md` for the diagram and the full data flow.
   (e.g., `__frame_id_map`, `__scene_id_by_idx`). Don't rely on them surviving
   a worker restart — add a DB-recompute fallback (see
   `_frame_id_map_from_db` for the pattern).
+- **`uv run` re-syncs to default deps — it strips the m3-visual extras.**
+  uv >=0.5 auto-syncs the environment to the project's *default* dependencies
+  on every `uv run`, silently uninstalling whatever `make sync-m3` added
+  (torch, Pillow, sqlite-vec, ...). A bare `uv run pytest` therefore fails
+  collection (`No module named 'PIL'`) and then the DB layer (`no such module:
+  vec0`). The `Makefile`'s `test` target pins `--extra dev --extra m3-visual`
+  on the `uv run` itself for this reason — **always go through `make test`**,
+  and if you run `uv run` directly, pass both extras (and
+  `UV_PROJECT_ENVIRONMENT=.venv.nosync`).
+- **OCR tests fail inside a sandbox that hides `/tmp`.** `pytesseract` shells
+  out to the `tesseract` binary as a child process. Under a sandbox that
+  redirects `TMPDIR` to a path the subprocess can't read (e.g. Claude Code's
+  `/tmp/claude-501/...`), leptonica fails with `Error in fopenReadStream` and
+  pytesseract masks it as a bogus `UnicodeDecodeError: ...byte 0xff` (it's
+  decoding tesseract's binary error output). The code is fine — point `TMPDIR`
+  at a normal path: `TMPDIR=~/.cache/mmrag-pytest-tmp make test`, or just run
+  the suite in a normal terminal.
 
 ## Reused patterns from other projects
 

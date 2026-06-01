@@ -12,6 +12,18 @@
 
 export UV_PROJECT_ENVIRONMENT := .venv.nosync
 
+# Every `uv run` must request the extras explicitly. uv >=0.5 auto-syncs the
+# environment to the project's DEFAULT deps on each `uv run`, silently
+# UNINSTALLING whatever `make sync-m3` added (torch, sqlite-vec, Pillow, ...).
+# Because the DB layer needs sqlite-vec (vec0) at *runtime*, a bare `uv run
+# mmrag serve-api` would otherwise crash with `no such module: vec0` — and
+# mixing bare/extra'd `uv run` calls thrashes the venv (each call re-resolves).
+# So all run targets go through $(UV_RUN) with the same full extra set, keeping
+# .venv.nosync in one consistent state. (uv 0.11 has no `[tool.uv]
+# default-extras`, so this can't move into pyproject.toml without demoting the
+# extras to non-distributable dependency-groups.)
+UV_RUN := uv run --extra dev --extra m3-visual
+
 .PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp worker docker-build docker-up
 
 help:
@@ -40,25 +52,25 @@ sync-m3:
 	uv sync --extra dev --extra m3-visual
 
 test:
-	uv run pytest -q
+	$(UV_RUN) pytest -q
 
 lint:
-	uv run ruff check src tests
+	$(UV_RUN) ruff check src tests
 
 format:
-	uv run ruff format src tests
+	$(UV_RUN) ruff format src tests
 
 init-db:
-	uv run mmrag init-db
+	$(UV_RUN) mmrag init-db
 
 serve-api:
-	uv run mmrag serve-api
+	$(UV_RUN) mmrag serve-api
 
 serve-mcp:
-	uv run mmrag serve-mcp
+	$(UV_RUN) mmrag serve-mcp
 
 worker:
-	uv run mmrag worker
+	$(UV_RUN) mmrag worker
 
 clean:
 	rm -rf .venv.nosync .pytest_cache .ruff_cache
