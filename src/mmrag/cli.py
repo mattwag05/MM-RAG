@@ -78,11 +78,11 @@ def worker() -> None:
     """Drain the job queue continuously."""
     import asyncio
 
-    from mmrag.worker import run_worker
+    from mmrag.worker import run_worker_until_signalled
 
     settings = get_settings()
     settings.ensure_dirs()
-    asyncio.run(run_worker())
+    asyncio.run(run_worker_until_signalled())
 
 
 @app.command("version")

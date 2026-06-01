@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import signal
+from collections.abc import Callable
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect
@@ -77,3 +79,46 @@ async def run_worker() -> None:
         if active:
             await asyncio.gather(*active, return_exceptions=True)
         raise
+
+
+async def run_worker_until_signalled() -> None:
+    """Run the worker and convert process signals into graceful cancellation.
+
+    Docker sends SIGTERM to PID 1 during ``docker stop``. Without an explicit
+    handler, Python exits immediately and active job leases remain fresh until
+    the stale-lease timeout. Cancelling ``run_worker`` gives active pipelines a
+    chance to release their leases before the process exits.
+    """
+    loop = asyncio.get_running_loop()
+    worker_task = asyncio.create_task(run_worker())
+    installed: list[signal.Signals] = []
+    restored: list[tuple[signal.Signals, signal.Handlers | int | Callable]] = []
+
+    def request_stop(sig: signal.Signals) -> None:
+        log.info("worker.signal", signal=sig.name)
+        if not worker_task.done():
+            worker_task.cancel()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, request_stop, sig)
+        except (NotImplementedError, RuntimeError):
+            previous = signal.getsignal(sig)
+
+            def handler(_signum, _frame, *, handled_sig=sig) -> None:  # noqa: ANN001
+                loop.call_soon_threadsafe(request_stop, handled_sig)
+
+            signal.signal(sig, handler)
+            restored.append((sig, previous))
+        else:
+            installed.append(sig)
+
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        return
+    finally:
+        for sig in installed:
+            loop.remove_signal_handler(sig)
+        for sig, previous in restored:
+            signal.signal(sig, previous)

@@ -64,6 +64,19 @@ async def run(
         except ProcessLookupError:
             pass
         raise SubprocessTimeout(f"{argv[0]} exceeded {timeout_s}s timeout") from None
+    except asyncio.CancelledError:
+        log.info("cancelled, terminating subprocess", argv=argv, pid=proc.pid)
+        try:
+            proc.send_signal(signal.SIGTERM)
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=grace_s)
+            except TimeoutError:
+                log.warning("SIGTERM ignored during cancellation, sending SIGKILL", pid=proc.pid)
+                proc.kill()
+                await proc.wait()
+        except ProcessLookupError:
+            pass
+        raise
 
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")
