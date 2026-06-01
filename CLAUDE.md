@@ -86,25 +86,32 @@ What's wired end-to-end today:
   for shared tailnet access; non-loopback binds require `MMRAG_MCP_TOKEN`.
 - FastAPI REST mirror on `:8765` (`mmrag serve-api`)
 - Background worker that drains the job queue (`mmrag worker`)
-- SQLite WAL store, migration runner, M1–M4 foundation schema (`assets`, `jobs`,
+- SQLite WAL store, migration runner, M1–M7/2.x foundation schema (`assets`, `jobs`,
   `scenes`, `frames`, `transcript_segments`, `fts_transcript`, `fts_scenes`,
-  `vec_frames`, `vec_scenes`, `vec_transcript`, `content_items`)
+  `vec_frames`, `vec_scenes`, `vec_transcript`, `content_items`,
+  `fts_content_items`, `nodes`, `edges`)
 - Pipeline stages 1–7 live: fetch (yt-dlp / local file) → ffmpeg normalize →
   PySceneDetect `ContentDetector` → faster-whisper `tiny.en` int8 →
   frame sampling (scene midpoints + 2s stride on long scenes) →
   Tesseract OCR (PSM 6, 10s timeout) → SigLIP-base-patch16-256 embed (768-d, L2-norm)
 - Stage 8 (summarize) deterministically distills per-scene transcript/OCR
   text into `scenes.summary` and rewrites `content_items` video-segment text
+- Document ingestion for Markdown, HTML, TXT, DOCX, and PDF text emits
+  `text`, `table`, `image`, and `generic` content items through the same
+  retrieval path.
 - Runner persists scenes + frames + transcript segments incrementally after each
   stage (idempotent via UNIQUE keys, so re-ingest is a no-op)
-- `search` tool runs hybrid RRF over FTS transcript / FTS scenes / vec frames /
-  vec transcript, scoped by optional `asset_id` and `top_k`, snippet-highlighted.
+- `search` tool runs FTS/vector/hybrid/hybrid_graph retrieval over FTS
+  transcript / FTS scenes / FTS content items / vec frames / vec transcript,
+  scoped by optional `asset_id` and `top_k`, snippet-highlighted.
   sqlite-vec asset scoping uses metadata-column prefilters so `k=` is scoped
   before nearest-neighbor selection.
+- `VectorBackend` protocol defaults to sqlite-vec and includes an optional
+  Qdrant selection hook; graph retrieval stays in SQLite.
 - `ask` returns evidence packs by default (`answer=None`) and only calls the
   configured Ollama/Gemma backend when `synthesize=True`.
 - `content_items` is a persisted projection over scenes, transcript segments,
-  and frames; it is the foundation for document ingestion and graph retrieval.
+  frames, and documents; graph nodes/edges are rebuilt from it per asset.
 - Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
   ingest → search round-trip using a TTS-generated speech fixture
   (73/73 passing on macOS with `say`; integration tests auto-skip if no

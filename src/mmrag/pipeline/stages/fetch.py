@@ -8,6 +8,7 @@ from pathlib import Path
 
 from mmrag.config import get_settings
 from mmrag.logging import get_logger
+from mmrag.pipeline.stages.document import is_document_source
 
 log = get_logger("stage.fetch")
 
@@ -120,4 +121,6 @@ async def fetch(*, source: str) -> dict:
         "source_url": source_url,
         "title": title,
         "raw_path": str(raw_dest),
+        "is_document": is_document_source(str(raw_dest)),
+        "document_type": raw_dest.suffix.lower().lstrip(".") or None,
     }

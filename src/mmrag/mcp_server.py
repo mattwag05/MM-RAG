@@ -117,7 +117,7 @@ def _register_tools(server: FastMCP) -> None:
         top_k: int = 10,
         mode: str = "hybrid",
     ) -> dict:
-        """Search across transcripts, OCR, and scene summaries."""
+        """Search transcripts, OCR, document content, and optional graph context."""
         inp = SearchInput(query=query, asset_id=asset_id, top_k=top_k, mode=mode)
         out: SearchOutput = await handle_search(inp)
         return out.model_dump()

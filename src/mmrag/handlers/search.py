@@ -22,12 +22,14 @@ Vector/hybrid hits carry scene-level start_s/end_s from scenes table.
 from __future__ import annotations
 
 import re
-import struct
 from dataclasses import dataclass, field
 
+from mmrag.config import get_settings
 from mmrag.db.connection import connect
+from mmrag.db.graph import expand_search_hits
 from mmrag.logging import get_logger
 from mmrag.models.mcp_io import SearchHit, SearchInput, SearchOutput
+from mmrag.vector_backends import QdrantBackend, SqliteVecBackend, VectorBackend
 
 log = get_logger("handler.search")
 
@@ -62,9 +64,11 @@ async def _encode_query_text(query: str) -> list[float]:
     return vecs[0]
 
 
-def _pack(v: list[float]) -> bytes:
-    # Explicit little-endian — sqlite-vec's vec0 expects LE float32 blobs.
-    return struct.pack(f"<{len(v)}f", *v)
+def _vector_backend() -> VectorBackend:
+    settings = get_settings()
+    if settings.vector_backend == "qdrant":
+        return QdrantBackend(settings.qdrant_url)
+    return SqliteVecBackend()
 
 
 def _fts_query(query: str) -> str | None:
@@ -96,10 +100,6 @@ def _fts_query(query: str) -> str | None:
 
 def _time_overlap_clause(alias: str) -> str:
     return f" AND {alias}.end_s >= ? AND {alias}.start_s <= ?"
-
-
-def _time_point_clause(alias: str) -> str:
-    return f" AND {alias}.t_s >= ? AND {alias}.t_s <= ?"
 
 
 def _append_time_params(params: list, time_range: tuple[float, float] | None) -> None:
@@ -199,94 +199,83 @@ def _fts_scenes_stream(
 def _vec_frames_stream(
     qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None
 ) -> list[_StreamHit]:
-    sql = """
-        SELECT f.scene_id AS scene_id,
-               vf.rowid AS frame_id,
-               vf.distance AS distance
-          FROM vec_frames vf
-          JOIN frames f ON f.id = vf.rowid
-         WHERE {asset_filter}
-           vf.embedding MATCH ?
-           AND k = ?
-    """
-    if asset_id is not None:
-        sql = sql.format(asset_filter="vf.asset_id = ? AND")
-        params: list = [asset_id, _pack(qvec), _PER_STREAM_TOP]
-    else:
-        sql = sql.format(asset_filter="")
-        params = [_pack(qvec), _PER_STREAM_TOP]
-    if time_range is not None:
-        sql = sql.replace("           vf.embedding MATCH ?", _time_point_clause("f") + "\n           AND vf.embedding MATCH ?")
-        if asset_id is not None:
-            params = [asset_id, time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
-        else:
-            params = [time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
-    with connect() as conn:
-        try:
-            rows = conn.execute(sql, params).fetchall()
-        except Exception as e:  # noqa: BLE001
-            log.warning("vec_frames.failed", error=str(e))
-            return []
+    try:
+        hits = _vector_backend().frame_hits(qvec, asset_id, time_range, _PER_STREAM_TOP)
+    except Exception as e:  # noqa: BLE001
+        log.warning("vec_frames.failed", error=str(e))
+        return []
     return [
         _StreamHit(
-            scene_id=int(r["scene_id"]),
-            # sqlite-vec returns squared L2 distance on L2-normalized vecs;
-            # for unit vectors, cosine_sim = 1 - distance^2 / 2.
-            score=1.0 - (float(r["distance"]) ** 2) / 2.0,
-            snippet=None,
-            frame_id=int(r["frame_id"]),
-            source="vec_frames",
+            scene_id=int(hit.scene_id),
+            score=hit.score,
+            snippet=hit.snippet,
+            frame_id=hit.frame_id,
+            source=hit.source,
         )
-        for r in rows
+        for hit in hits
+        if hit.scene_id is not None
     ]
 
 
 def _vec_transcript_stream(
     qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None
 ) -> list[_StreamHit]:
+    try:
+        hits = _vector_backend().transcript_hits(qvec, asset_id, time_range, _PER_STREAM_TOP)
+    except Exception as e:  # noqa: BLE001
+        log.warning("vec_transcript.failed", error=str(e))
+        return []
+    return [
+        _StreamHit(
+            scene_id=int(hit.scene_id),
+            score=hit.score,
+            snippet=hit.snippet,
+            source=hit.source,
+        )
+        for hit in hits
+        if hit.scene_id is not None
+    ]
+
+
+def _content_items_hits(query: str, asset_id: str | None, top_k: int) -> list[SearchHit]:
+    fts_query = _fts_query(query)
+    if fts_query is None:
+        return []
     sql = """
-        SELECT ts.scene_id AS scene_id,
-               ts.text     AS text,
-               vt.distance AS distance
-          FROM vec_transcript vt
-          JOIN transcript_segments ts ON ts.id = vt.rowid
-         WHERE {asset_filter}
-           vt.embedding MATCH ?
-           AND k = ?
+        SELECT f.item_id, f.asset_id, f.item_type,
+               -bm25(fts_content_items) AS score,
+               snippet(fts_content_items, 3, '', '', '…', 24) AS snippet,
+               ci.scene_id, ci.frame_id, ci.start_s, ci.end_s
+          FROM fts_content_items f
+          JOIN content_items ci ON ci.id = f.item_id
+         WHERE fts_content_items MATCH ?
     """
+    params: list = [fts_query]
     if asset_id is not None:
-        sql = sql.format(asset_filter="vt.asset_id = ? AND")
-        params: list = [asset_id, _pack(qvec), _PER_STREAM_TOP]
-    else:
-        sql = sql.format(asset_filter="")
-        params = [_pack(qvec), _PER_STREAM_TOP]
-    if time_range is not None:
-        sql = sql.replace("           vt.embedding MATCH ?", _time_overlap_clause("ts") + "\n           AND vt.embedding MATCH ?")
-        if asset_id is not None:
-            params = [asset_id, time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
-        else:
-            params = [time_range[0], time_range[1], _pack(qvec), _PER_STREAM_TOP]
+        sql += " AND f.asset_id = ?"
+        params.append(asset_id)
+    sql += " ORDER BY score DESC LIMIT ?"
+    params.append(top_k)
     with connect() as conn:
         try:
             rows = conn.execute(sql, params).fetchall()
         except Exception as e:  # noqa: BLE001
-            log.warning("vec_transcript.failed", error=str(e))
+            log.warning("fts_content_items.failed", error=str(e))
             return []
-    out: list[_StreamHit] = []
-    for r in rows:
-        if r["scene_id"] is None:
-            continue
-        text = r["text"] or ""
-        snippet = text[:80] + ("…" if len(text) > 80 else "")
-        out.append(
-            _StreamHit(
-                scene_id=int(r["scene_id"]),
-                score=1.0 - (float(r["distance"]) ** 2) / 2.0,
-                snippet=snippet,
-                source="vec_transcript",
-            )
+    return [
+        SearchHit(
+            asset_id=row["asset_id"],
+            content_item_id=row["item_id"],
+            scene_id=str(row["scene_id"]) if row["scene_id"] is not None else None,
+            frame_id=str(row["frame_id"]) if row["frame_id"] is not None else None,
+            start_s=float(row["start_s"] or 0.0),
+            end_s=float(row["end_s"] if row["end_s"] is not None else row["start_s"] or 0.0),
+            score=float(row["score"]),
+            snippet=row["snippet"],
+            source_stream="content_items",
         )
-    return out
+        for row in rows
+    ]
 
 
 def _scene_timing(scene_ids: list[int]) -> dict[int, tuple[str, float, float]]:
@@ -338,12 +327,13 @@ def _rrf_fuse(
 
 async def handle_search(inp: SearchInput) -> SearchOutput:
     streams: list[list[_StreamHit]] = []
+    base_mode = "hybrid" if inp.mode == "hybrid_graph" else inp.mode
 
-    if inp.mode in ("fts", "hybrid"):
+    if base_mode in ("fts", "hybrid"):
         streams.append(_fts_transcript_stream(inp.query, inp.asset_id, inp.time_range))
         streams.append(_fts_scenes_stream(inp.query, inp.asset_id, inp.time_range))
 
-    if inp.mode in ("vector", "hybrid"):
+    if base_mode in ("vector", "hybrid"):
         try:
             qvec = await _encode_query_text(inp.query)
         except Exception as e:  # noqa: BLE001
@@ -353,7 +343,13 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
             streams.append(_vec_frames_stream(qvec, inp.asset_id, inp.time_range))
             streams.append(_vec_transcript_stream(qvec, inp.asset_id, inp.time_range))
 
-    if inp.mode == "fts":
+    content_hits = (
+        _content_items_hits(inp.query, inp.asset_id, inp.top_k)
+        if base_mode in ("fts", "hybrid")
+        else []
+    )
+
+    if base_mode == "fts":
         # FTS-only: return segment-level timestamps for precision.
         # Flatten streams (fts_transcript first, then fts_scenes), dedup by
         # scene_id. When both streams match the same scene, always prefer the
@@ -379,8 +375,7 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
                     flat[hit.scene_id] = hit
         ordered = sorted(flat.values(), key=lambda h: h.score, reverse=True)[: inp.top_k]
         scene_meta = _scene_timing([h.scene_id for h in ordered])
-        return SearchOutput(
-            hits=[
+        scene_hits = [
                 SearchHit(
                     asset_id=scene_meta[h.scene_id][0],
                     scene_id=str(h.scene_id),
@@ -396,9 +391,12 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
                 for h in ordered
                 if h.scene_id in scene_meta
             ]
-        )
+        hits = sorted([*scene_hits, *content_hits], key=lambda h: h.score, reverse=True)[: inp.top_k]
+        if inp.mode == "hybrid_graph":
+            hits = _with_graph_expansion(hits, inp)
+        return SearchOutput(hits=hits)
 
-    if inp.mode == "vector":
+    if base_mode == "vector":
         flat_v: dict[int, _StreamHit] = {}
         for hits in streams:
             for hit in hits:
@@ -407,8 +405,7 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
                     flat_v[hit.scene_id] = hit
         ordered_v = sorted(flat_v.values(), key=lambda h: h.score, reverse=True)[: inp.top_k]
         scene_meta = _scene_timing([h.scene_id for h in ordered_v])
-        return SearchOutput(
-            hits=[
+        hits = [
                 SearchHit(
                     asset_id=scene_meta[h.scene_id][0],
                     scene_id=str(h.scene_id),
@@ -422,13 +419,12 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
                 for h in ordered_v
                 if h.scene_id in scene_meta
             ]
-        )
+        return SearchOutput(hits=hits)
 
     # hybrid: RRF fusion over all streams
     fused = _rrf_fuse(streams, inp.top_k)
     scene_meta = _scene_timing([sid for sid, _, _, _, _ in fused])
-    return SearchOutput(
-        hits=[
+    hits = [
             SearchHit(
                 asset_id=scene_meta[sid][0],
                 scene_id=str(sid),
@@ -442,4 +438,25 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
             for sid, score, snippet, source, frame_id in fused
             if sid in scene_meta
         ]
-    )
+    hits = [*hits, *content_hits]
+    hits = sorted(hits, key=lambda h: h.score, reverse=True)[: inp.top_k]
+    if inp.mode == "hybrid_graph":
+        hits = _with_graph_expansion(hits, inp)
+    return SearchOutput(hits=hits)
+
+
+def _with_graph_expansion(hits: list[SearchHit], inp: SearchInput) -> list[SearchHit]:
+    if not get_settings().graph_enabled:
+        return hits
+    expanded = expand_search_hits(hits, top_k=max(inp.top_k - len(hits), inp.top_k), asset_id=inp.asset_id)
+    merged: list[SearchHit] = []
+    seen: set[tuple[str, str | None, str | None, str | None]] = set()
+    for hit in [*hits, *expanded]:
+        key = (hit.asset_id, hit.content_item_id, hit.scene_id, hit.frame_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(hit)
+        if len(merged) >= inp.top_k:
+            break
+    return merged

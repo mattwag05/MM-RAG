@@ -62,7 +62,23 @@ def _read_summary(asset_id: str | None) -> str | None:
             (asset_id,),
         ).fetchall()
     if not rows:
-        return None
+        with connect() as conn:
+            doc_rows = conn.execute(
+                """
+                SELECT text
+                  FROM content_items
+                 WHERE asset_id = ?
+                   AND text IS NOT NULL
+                   AND text <> ''
+                 ORDER BY chunk_idx
+                 LIMIT 3
+                """,
+                (asset_id,),
+            ).fetchall()
+        if not doc_rows:
+            return None
+        summary = " | ".join(str(r["text"]) for r in doc_rows)
+        return summary[:1200] + ("…" if len(summary) > 1200 else "")
     parts = [
         f"{float(r['start_s']):.2f}-{float(r['end_s']):.2f}s: {r['summary']}" for r in rows
     ]

@@ -54,6 +54,7 @@ class Evidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     asset_id: str
+    content_item_id: str | None = None
     scene_id: str | None = None
     frame_id: str | None = None
     start_s: float
@@ -85,7 +86,7 @@ class SearchInput(BaseModel):
     query: str
     asset_id: str | None = None
     top_k: int = Field(10, ge=1, le=100)
-    mode: Literal["hybrid", "vector", "fts"] = "hybrid"
+    mode: Literal["hybrid", "vector", "fts", "hybrid_graph"] = "hybrid"
     time_range: tuple[float, float] | None = None
 
     @model_validator(mode="after")
@@ -99,6 +100,7 @@ class SearchHit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     asset_id: str
+    content_item_id: str | None = None
     scene_id: str | None = None
     frame_id: str | None = None
     start_s: float

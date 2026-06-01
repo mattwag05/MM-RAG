@@ -126,8 +126,10 @@ jobs(id, asset_id?, source, mode, push_to_sbt, status, stage, progress,
 ```
 
 M2 adds `transcript_segments` + `fts_transcript`. M3 adds `scenes`,
-`frames`, `vec_*` virtual tables, and `fts_scenes`. Each lives in its
-own numbered SQL file under `src/mmrag/db/sql/`.
+`frames`, `vec_*` virtual tables, and `fts_scenes`. M4 adds
+`content_items`; the 2.x foundation adds `fts_content_items`, `nodes`,
+and `edges`. Each lives in its own numbered SQL file under
+`src/mmrag/db/sql/`.
 
 ## MCP tool surface
 
@@ -135,17 +137,20 @@ own numbered SQL file under `src/mmrag/db/sql/`.
 ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
 ask(question, asset_id=None, time_range=None, top_k=5,
     synthesize=False, model="gemma4:e4b")
-search(query, asset_id=None, top_k=10, mode="hybrid"|"vector"|"fts")
+search(query, asset_id=None, top_k=10,
+       mode="hybrid"|"vector"|"fts"|"hybrid_graph")
 status(job_id)
 ```
 
 **Evidence-first contract.** `ask` returns rich `Evidence` objects:
-`{asset_id, scene_id, frame_id, start_s, end_s, source_stream, snippet,
-score, summary, ocr_snippet, transcript_snippet}`. `search` returns a
-compatible hit superset with `source_stream`, `frame_id`, `snippet`, and
-`score`. `ask` additionally returns an optional `answer: str | None` and
-a `confidence` field — `answer` is only populated when the caller passes
-`synthesize=True`. This keeps the core contract evidence-first and
+`{asset_id, content_item_id, scene_id, frame_id, start_s, end_s,
+source_stream, snippet, score, summary, ocr_snippet, transcript_snippet}`.
+`search` returns a compatible hit superset with `content_item_id`,
+`source_stream`, `frame_id`, `snippet`, and `score`. `hybrid_graph`
+extends hybrid retrieval with SQLite graph neighbors over assets, content
+items, scenes, frames, segments, and topics. `ask` additionally returns an
+optional `answer: str | None` and a `confidence` field — `answer` is only
+populated when the caller passes `synthesize=True`. This keeps the core contract evidence-first and
 matches the PMF thesis that edge agents
 (Talia, Gus, Kit, Claude Code) already have their own LLMs and prefer
 retrieved evidence packs to yet another inference layer.

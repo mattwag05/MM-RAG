@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     mcp_public_url: str | None = None
     log_level: str = "INFO"
     worker_concurrency: int = 2
+    graph_enabled: bool = True
+    vector_backend: str = "sqlite"
+    qdrant_url: str | None = None
 
     @property
     def db_path(self) -> Path:

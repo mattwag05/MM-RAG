@@ -6,9 +6,11 @@ import uuid
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect, transaction
-from mmrag.db.content_items import rewrite_content_items_for_asset
+from mmrag.db.content_items import replace_content_items_for_asset, rewrite_content_items_for_asset
 from mmrag.logging import get_logger
+from mmrag.models.content_item import ContentItem
 from mmrag.models.job import M1_STAGE_ORDER, JobStatus, Stage
+from mmrag.pipeline.stages.document import DocumentIngestError, ingest_document
 from mmrag.pipeline.stages.embed import embed
 from mmrag.pipeline.stages.fetch import FetchError, fetch
 from mmrag.pipeline.stages.frame_sample import frame_sample
@@ -57,7 +59,7 @@ def _claim_job(job_id: str, runner_id: str) -> dict | None:
         if cur.rowcount != 1:
             return None
         row = conn.execute(
-            "SELECT id, source, mode, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
+            "SELECT id, source, mode, push_to_sbt, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
         return dict(row) if row is not None else None
@@ -447,12 +449,110 @@ def _upsert_asset(state: dict) -> None:
         )
 
 
+def _sbt_payload(asset_id: str) -> dict | None:
+    with connect() as conn:
+        asset = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        if asset is None:
+            return None
+        transcript = conn.execute(
+            """
+            SELECT group_concat(text, ' ') AS text
+              FROM transcript_segments
+             WHERE asset_id = ?
+             ORDER BY seg_idx
+            """,
+            (asset_id,),
+        ).fetchone()
+        summaries = conn.execute(
+            """
+            SELECT summary
+              FROM scenes
+             WHERE asset_id = ?
+               AND summary IS NOT NULL
+               AND summary <> ''
+             ORDER BY scene_idx
+             LIMIT 8
+            """,
+            (asset_id,),
+        ).fetchall()
+        content_text = conn.execute(
+            """
+            SELECT group_concat(text, ' ') AS text
+              FROM content_items
+             WHERE asset_id = ?
+               AND text IS NOT NULL
+               AND text <> ''
+             ORDER BY chunk_idx
+            """,
+            (asset_id,),
+        ).fetchone()
+
+    transcript_text = transcript["text"] or content_text["text"] or ""
+    summary = " ".join(row["summary"] for row in summaries if row["summary"]).strip()
+    if not summary:
+        summary = (transcript_text[:500] + ("…" if len(transcript_text) > 500 else "")).strip()
+    top_tags = _top_tags(" ".join(part for part in (summary, transcript_text) if part))
+    return {
+        "url": asset["source_url"] or asset["mezzanine_path"] or asset["metadata_json"],
+        "platform": _platform(asset["source_url"]),
+        "mmrag_asset_id": asset_id,
+        "summary": summary,
+        "topTags": top_tags,
+        "transcriptText": transcript_text,
+    }
+
+
+def _platform(source_url: str | None) -> str:
+    if not source_url:
+        return "unknown"
+    lowered = source_url.lower()
+    if "instagram.com" in lowered:
+        return "instagram"
+    if "threads.net" in lowered:
+        return "threads"
+    if "youtube.com" in lowered or "youtu.be" in lowered:
+        return "youtube"
+    return "unknown"
+
+
+def _top_tags(text: str) -> list[str]:
+    import re
+    from collections import Counter
+
+    words = [
+        w.lower()
+        for w in re.findall(r"[A-Za-z][A-Za-z0-9_-]{3,}", text)
+        if w.lower() not in {"about", "from", "that", "this", "with", "there", "their"}
+    ]
+    return [word for word, _count in Counter(words).most_common(8)]
+
+
+async def _push_to_sbt_if_requested(asset_id: str | None, push_to_sbt: bool) -> None:
+    if not asset_id or not push_to_sbt:
+        return
+    settings = get_settings()
+    if not settings.sbt_url:
+        log.warning("sbt.skip_no_url", asset_id=asset_id)
+        return
+    payload = _sbt_payload(asset_id)
+    if payload is None:
+        return
+    from mmrag.sbt_client import SBTClientError, push_to_sbt
+
+    try:
+        await push_to_sbt(settings.sbt_url, payload)
+    except SBTClientError as e:
+        log.warning("sbt.push_failed", asset_id=asset_id, error=str(e))
+
+
 async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
     """Dispatch a stage by name. M1 only has fetch+normalize as real stages;
     everything else returns a stub patch."""
     if stage is Stage.FETCH:
         return await fetch(source=state["source"])
     if stage is Stage.NORMALIZE:
+        if state.get("is_document"):
+            return await ingest_document(raw_path=state["raw_path"], asset_id=state["asset_id"])
         settings = get_settings()
         return await normalize(
             raw_path=state["raw_path"],
@@ -460,13 +560,19 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
             asset_dir=settings.assets_dir / state["content_hash"],
         )
     if stage is Stage.SCENE_DETECT:
+        if state.get("is_document"):
+            return {"scenes": []}
         return await scene_detect(mezzanine_path=state.get("mezzanine_path"))
     if stage is Stage.TRANSCRIBE:
+        if state.get("is_document"):
+            return {"segments": []}
         return await transcribe(
             audio_path=state.get("audio_path"),
             scenes=state.get("scenes", []),
         )
     if stage is Stage.FRAME_SAMPLE:
+        if state.get("is_document"):
+            return {"frames": []}
         settings = get_settings()
         content_hash = state.get("content_hash")
         if not content_hash:
@@ -480,14 +586,20 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
             mode=mode,
         )
     if stage is Stage.OCR:
+        if state.get("is_document"):
+            return {"frames": state.get("frames", [])}
         return await ocr(frames=state.get("frames", []))
     if stage is Stage.EMBED:
+        if state.get("is_document"):
+            return {"frame_vectors": [], "scene_vectors": [], "segment_vectors": [], "vectors_written": 0}
         return await embed(
             scenes=state.get("scenes", []),
             frames=state.get("frames", []),
             segments=state.get("segments", []),
         )
     if stage is Stage.SUMMARIZE:
+        if state.get("is_document"):
+            return {"summaries": []}
         return await summarize(
             scenes=state.get("scenes", []),
             segments=state.get("segments", []),
@@ -513,6 +625,7 @@ async def run_pipeline(job_id: str) -> None:
     state["__job_id"] = job_id
     completed_stage = Stage(row["stage"]) if row["stage"] else Stage.QUEUED
     mode = row["mode"] or "standard"
+    push_to_sbt = bool(row["push_to_sbt"])
 
     try:
         n_stages = len(M1_STAGE_ORDER)
@@ -534,19 +647,22 @@ async def run_pipeline(job_id: str) -> None:
                 # Persist the asset row as soon as we know the canonical
                 # technical metadata, so that GET /asset/{id} works mid-job.
                 _upsert_asset(state)
-            elif stage is Stage.SCENE_DETECT and state.get("asset_id"):
+                if state.get("is_document"):
+                    items = [ContentItem(**item) for item in state.get("document_items", [])]
+                    replace_content_items_for_asset(state["asset_id"], items)
+            elif stage is Stage.SCENE_DETECT and state.get("asset_id") and not state.get("is_document"):
                 _persist_scenes(
                     asset_id=state["asset_id"],
                     scenes=state.get("scenes", []),
                 )
                 rewrite_content_items_for_asset(state["asset_id"])
-            elif stage is Stage.TRANSCRIBE and state.get("asset_id"):
+            elif stage is Stage.TRANSCRIBE and state.get("asset_id") and not state.get("is_document"):
                 _persist_segments(
                     asset_id=state["asset_id"],
                     segments=state.get("segments", []),
                 )
                 rewrite_content_items_for_asset(state["asset_id"])
-            elif stage is Stage.FRAME_SAMPLE and state.get("asset_id"):
+            elif stage is Stage.FRAME_SAMPLE and state.get("asset_id") and not state.get("is_document"):
                 scene_id_by_idx = _scene_id_by_idx(state["asset_id"])
                 frame_id_map = _persist_frames(
                     asset_id=state["asset_id"],
@@ -559,14 +675,14 @@ async def run_pipeline(job_id: str) -> None:
                 state["__frame_id_map"] = {f"{k[0]}:{k[1]}": v for k, v in frame_id_map.items()}
                 state["__scene_id_by_idx"] = {str(k): v for k, v in scene_id_by_idx.items()}
                 rewrite_content_items_for_asset(state["asset_id"])
-            elif stage is Stage.OCR and state.get("asset_id"):
+            elif stage is Stage.OCR and state.get("asset_id") and not state.get("is_document"):
                 _update_frame_ocr(
                     asset_id=state["asset_id"],
                     frames=state.get("frames", []),
                 )
                 _rewrite_fts_scenes(asset_id=state["asset_id"])
                 rewrite_content_items_for_asset(state["asset_id"])
-            elif stage is Stage.EMBED and state.get("asset_id"):
+            elif stage is Stage.EMBED and state.get("asset_id") and not state.get("is_document"):
                 raw_frame_stash = state.get("__frame_id_map") or {}
                 if raw_frame_stash:
                     frame_id_map = {
@@ -592,7 +708,7 @@ async def run_pipeline(job_id: str) -> None:
                     scene_vectors=state.get("scene_vectors", []),
                     segment_vectors=state.get("segment_vectors", []),
                 )
-            elif stage is Stage.SUMMARIZE and state.get("asset_id"):
+            elif stage is Stage.SUMMARIZE and state.get("asset_id") and not state.get("is_document"):
                 _persist_scene_summaries(
                     asset_id=state["asset_id"],
                     summaries=state.get("summaries", []),
@@ -611,12 +727,16 @@ async def run_pipeline(job_id: str) -> None:
         # After SUMMARIZE we mark the job done.
         _persist_state(job_id, _strip_internal(state), Stage.DONE, 1.0)
         _set_status(job_id, JobStatus.DONE)
+        await _push_to_sbt_if_requested(state.get("asset_id"), push_to_sbt)
         log.info("job.done", job_id=job_id, asset_id=state.get("asset_id"))
     except FetchError as e:
         log.warning("fetch.error", job_id=job_id, kind=e.kind, error=str(e))
         _record_error(job_id, e.kind, str(e))
     except NormalizeError as e:
         log.warning("normalize.error", job_id=job_id, kind=e.kind, error=str(e))
+        _record_error(job_id, e.kind, str(e))
+    except DocumentIngestError as e:
+        log.warning("document.error", job_id=job_id, kind=e.kind, error=str(e))
         _record_error(job_id, e.kind, str(e))
     except Exception as e:  # noqa: BLE001 — terminal job error path
         log.exception("pipeline.error", job_id=job_id)
