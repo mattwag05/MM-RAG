@@ -105,14 +105,14 @@ What's wired end-to-end today:
   and frames; it is the foundation for document ingestion and graph retrieval.
 - Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
   ingest → search round-trip using a TTS-generated speech fixture
-  (72/72 passing on macOS with `say`; integration tests auto-skip if no
+  (73/73 passing on macOS with `say`; integration tests auto-skip if no
   TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
 - `ModelProvider` ABC with a request-time `OllamaProvider` implementation
 - Dockerfile + docker-compose for Mac dev (Pi-targeted M6)
 
 Shipped:
-- **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, pytesseract, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
+- **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, sqlite-vec, numpy, transformers) — core install stays lean.
 - **M4** — evidence packs and synth opt-in (`ask` returns evidence by default; `answer` is `str | None`; request-time Ollama synthesis is behind `synthesize=True`). Also added `content_items` as the unified projection foundation.
 - **M5** — streamable-HTTP MCP transport for one shared tailnet service (`MMRAG_MCP_HOST` / `MMRAG_MCP_PORT` / `MMRAG_MCP_PATH`, protected by `MMRAG_MCP_TOKEN` when not loopback). Discovery metadata is served at `/.well-known/mcp-resource`.
 
@@ -136,13 +136,13 @@ make serve-api                            # FastAPI on :8765
 make serve-mcp                            # FastMCP over stdio
 make serve-mcp-http                       # FastMCP Streamable HTTP on :8766
 make worker                               # drain the job queue
-make test                                 # full test suite (72 tests)
+make test                                 # full test suite (73 tests)
 make lint                                 # ruff check  src tests (correctness/style gate)
 make format                               # ruff format src tests (separate formatter gate)
 ```
 
-In a **sandboxed shell** (e.g. Claude Code's Bash), `make test`'s OCR tests fail
-because the `tesseract` subprocess can't read the sandbox `TMPDIR` — run
+In a **sandboxed shell** (e.g. Claude Code's Bash), if OCR tests fail because
+the `tesseract` subprocess can't read the sandbox `TMPDIR`, run
 `TMPDIR=~/.cache/mmrag-pytest-tmp make test` (see Gotchas).
 
 ## Where things live
@@ -230,9 +230,9 @@ See `docs/architecture.md` for the diagram and the full data flow.
 - **Tesseract is a required non-Python dep for ingest once M3 ships.** Install
   with `brew install tesseract` (macOS) or `apt install tesseract-ocr`
   (Debian/Pi). The `ocr` stage fails fast with `OCRError(kind="binary_missing")`
-  and a clear install hint if it's missing. The `[m3-visual]` pyproject extra
-  gates the Python bindings but NOT the system binary — the runtime check
-  catches the delta.
+  and a clear install hint if it's missing. The OCR stage shells out through
+  `pipeline.subprocess_util.run`, so the 10s per-frame timeout terminates a
+  slow Tesseract child with SIGTERM/SIGKILL escalation.
 - **SigLIP cosine on synthetic fixtures caps around ~0.17.** The M3 acceptance
   test uses a relaxed `> 0.05` threshold against a SMPTE colorbars fixture
   because `timm/ViT-B-16-SigLIP-256` simply has weak affinity for synthetic
@@ -281,14 +281,11 @@ See `docs/architecture.md` for the diagram and the full data flow.
   on the `uv run` itself for this reason — **always go through `make test`**,
   and if you run `uv run` directly, pass both extras (and
   `UV_PROJECT_ENVIRONMENT=.venv.nosync`).
-- **OCR tests fail inside a sandbox that hides `/tmp`.** `pytesseract` shells
-  out to the `tesseract` binary as a child process. Under a sandbox that
-  redirects `TMPDIR` to a path the subprocess can't read (e.g. Claude Code's
-  `/tmp/claude-501/...`), leptonica fails with `Error in fopenReadStream` and
-  pytesseract masks it as a bogus `UnicodeDecodeError: ...byte 0xff` (it's
-  decoding tesseract's binary error output). The code is fine — point `TMPDIR`
-  at a normal path: `TMPDIR=~/.cache/mmrag-pytest-tmp make test`, or just run
-  the suite in a normal terminal.
+- **OCR tests need a subprocess-readable temp path.** Tesseract/Leptonica can
+  fail if a sandbox redirects `TMPDIR` to a path the child process cannot read
+  (e.g. Claude Code's `/tmp/claude-501/...`). The code is fine — point
+  `TMPDIR` at a normal path: `TMPDIR=~/.cache/mmrag-pytest-tmp make test`, or
+  just run the suite in a normal terminal.
 
 ## Reused patterns from other projects
 

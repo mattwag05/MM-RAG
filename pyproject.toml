@@ -19,7 +19,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Heavy ML deps (open_clip, pytesseract, sqlite-vec) are still added in
+# Heavy ML deps (open_clip, sqlite-vec) are still added in
 # their respective milestones. M2 brings in scenedetect + faster-whisper.
 dependencies = [
   "fastapi>=0.115",
@@ -44,7 +44,6 @@ dev = [
 m3-visual = [
   "open-clip-torch>=2.24",
   "torch>=2.2",
-  "pytesseract>=0.3.10",
   "Pillow>=10.0",
   "sqlite-vec>=0.1.0",
   "numpy>=1.26",

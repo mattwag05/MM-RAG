@@ -79,7 +79,7 @@ git clone <this repo>
 cd MM-RAG
 make sync-dev                         # installs Python 3.13, runtime + dev deps into .venv.nosync/
 # For the M3 visual pipeline (frame sampling, OCR, SigLIP embeddings):
-make sync-m3                          # adds torch, open-clip-torch, pytesseract, sqlite-vec, etc.
+make sync-m3                          # adds torch, open-clip-torch, sqlite-vec, etc.
 make init-db                          # creates ~/.local/share/mmrag/mmrag.db
 make serve-api &                      # FastAPI REST on http://127.0.0.1:8765
 make serve-mcp-http &                 # Streamable HTTP MCP on http://127.0.0.1:8766/mcp
@@ -277,9 +277,9 @@ Three non-Python pieces are required and **not bundled**:
    `apt install ffmpeg`. LGPL is fine for an MIT Python project as long as
    we don't statically link or redistribute it, and we don't.
 2. **`tesseract`** (Apache-2) — install via `brew install tesseract` /
-   `apt install tesseract-ocr`. Required for the M3 OCR stage. The Python
-   `pytesseract` binding (pulled in by `make sync-m3`) calls this system binary;
-   ingest fails fast with a clear error if it's missing.
+   `apt install tesseract-ocr`. Required for the M3 OCR stage. `mmrag`
+   shells out to this system binary via the pipeline subprocess wrapper
+   and fails fast with a clear error if it's missing.
 3. **Ollama + Gemma 4 weights.** Install Ollama from
    <https://ollama.com/download> and run `ollama pull gemma4:e4b` /
    `ollama pull gemma4:e2b`. Gemma weights are released under Google's

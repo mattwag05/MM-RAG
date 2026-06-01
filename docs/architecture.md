@@ -35,7 +35,7 @@ a config change, not a rewrite.
 | ASR | faster-whisper *(M2)* | MIT |
 | Scene detect | PySceneDetect *(M2)* | BSD-3 |
 | Embeddings | open_clip SigLIP | MIT |
-| OCR | Tesseract + pytesseract | Apache-2 |
+| OCR | Tesseract CLI (system binary, **not bundled**) | Apache-2 |
 | Vector store | sqlite-vec | Apache-2 |
 | Relational | SQLite (WAL) | Public domain |
 | Reasoning | Ollama (`gemma4:e4b` / `:e2b`, **user-supplied**, optional `[reasoning]` extra) *(M4)* | Gemma terms / Apache-2 |
