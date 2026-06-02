@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import suppress
 from importlib import resources
 
 from mmrag.db.connection import connect
@@ -28,6 +30,10 @@ def _applied(conn) -> set[str]:
     return {row["name"] for row in cur.fetchall()}
 
 
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def apply_migrations() -> list[str]:
     """Apply any pending migrations. Returns the names that ran this call."""
     ran: list[str] = []
@@ -49,13 +55,20 @@ def apply_migrations() -> list[str]:
                 continue
             log.info("applying migration", name=name)
             # executescript() implicitly commits any active transaction before
-            # running, so we cannot wrap it in our own BEGIN/COMMIT. The
-            # connection runs in autocommit mode (isolation_level=None), so
-            # the executescript and the insert each commit independently.
-            conn.executescript(sql)
-            conn.execute(
-                "INSERT OR IGNORE INTO schema_migrations(name) VALUES (?)",
-                (name,),
-            )
+            # running, so the BEGIN/COMMIT must live inside the script. This
+            # keeps migration DDL and the schema_migrations row atomic.
+            script = f"""
+            BEGIN;
+            {sql}
+            INSERT OR IGNORE INTO schema_migrations(name)
+            VALUES ({_sql_literal(name)});
+            COMMIT;
+            """
+            try:
+                conn.executescript(script)
+            except sqlite3.Error:
+                with suppress(sqlite3.Error):
+                    conn.execute("ROLLBACK")
+                raise
             ran.append(name)
     return ran
