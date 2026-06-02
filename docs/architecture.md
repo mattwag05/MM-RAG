@@ -178,6 +178,27 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
   is published; REST stays off the tailnet-facing Compose path. Ingest is
   queue-only in `mmrag-mcp` for this profile.
 
+### Live Pironman Deployment
+
+As of 2026-06-01, MM-RAG is deployed on `pironman` from
+`~/Projects/MM-RAG` at commit `602cbf2`.
+
+| Surface | Value |
+|---|---|
+| Tailscale host | `100.126.176.86` |
+| Discovery | `http://100.126.176.86:8766/.well-known/mcp-resource` |
+| MCP endpoint | `http://100.126.176.86:8766/mcp` |
+| Auth | `Authorization: Bearer <MMRAG_MCP_TOKEN>` |
+| Token location | `~/Projects/MM-RAG/.env` on Pironman |
+| Published services | MCP HTTP only; REST is not exposed by the Pi stack |
+
+The deployed discovery document advertises `transport=streamable-http`, bearer
+auth metadata, and exactly the four MCP tools: `ingest`, `ask`, `search`, and
+`status`. `mmrag-init` applies SQLite migrations once, then `mmrag-mcp` and
+`mmrag-worker` stay up as the long-running services. A Docker stop/restart
+probe validated that worker SIGTERM releases active job leases so interrupted
+jobs can be reclaimed after container restart.
+
 **v1 is single-tenant.** No caller IDs, no per-caller quotas, no
 asset-visibility scoping. Auth is one shared bearer token per host.
 Multi-tenant isolation is post-v1 and only lands if a concrete caller

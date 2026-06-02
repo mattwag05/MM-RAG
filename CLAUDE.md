@@ -76,7 +76,25 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 > `git push`); hydrate a fresh clone with `bd dolt pull`. The project's original
 > issue history was lost this way before the M5 machine transition.
 
-## Status (v0.1.0 — M6 Pi deploy path)
+## Status (v0.1.0 — deployed on Pironman)
+
+Current deployment (validated 2026-06-01):
+- Pironman hosts the shared tailnet MM-RAG instance from
+  `~/Projects/MM-RAG` at git commit `602cbf2`.
+- Streamable HTTP MCP discovery is at
+  `http://100.126.176.86:8766/.well-known/mcp-resource`; the MCP endpoint is
+  `http://100.126.176.86:8766/mcp`.
+- The MCP surface is exactly four tools: `ingest`, `ask`, `search`, `status`.
+- Bearer auth is required for MCP calls. The shared token lives only in
+  `~/Projects/MM-RAG/.env` on Pironman as `MMRAG_MCP_TOKEN`; do not print it
+  into docs or chat.
+- The Pi Compose stack is `docker-compose.pi.yml`: `mmrag-init` applies DB
+  migrations, `mmrag-mcp` publishes only tailnet MCP on `100.126.176.86:8766`,
+  and `mmrag-worker` drains queued ingest jobs against the shared `/data`
+  volume. REST is not published by this stack.
+- Pre-deploy validation passed locally with `make format`, `make lint`,
+  `make test` (103 tests), a Docker stop/restart lease probe, and an
+  authenticated remote MCP `list_tools` probe after deployment.
 
 What's wired end-to-end today:
 - `uv` project with broad Python `>=3.11,<3.14` packaging; dev/deploy
@@ -122,6 +140,9 @@ What's wired end-to-end today:
   The Pi path runs MCP HTTP + worker as separate services, includes M3 visual
   deps, disables inline ingest in the MCP service, and does not bundle
   Ollama/Gemma.
+- Docker SIGTERM handling releases active worker job leases before exit, so
+  `docker stop` followed by restart can reclaim the interrupted job instead of
+  leaving it indefinitely leased.
 
 Shipped:
 - **M3** — visual pipeline (frame sampling + Tesseract OCR + SigLIP-base-patch16-256 embeddings + sqlite-vec hybrid RRF over FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes` across the schema. Optional `m3-visual` extra (torch, open-clip-torch, Pillow, numpy, transformers) keeps heavyweight ML packages out of the core install; sqlite-vec is core because the shipped schema requires vec0 tables.
