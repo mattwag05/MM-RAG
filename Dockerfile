@@ -24,9 +24,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* README.md LICENSE ./
 COPY src ./src
 
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv
-RUN uv venv /app/.venv \
- && uv pip install --python /app/.venv/bin/python --torch-backend cpu --no-cache -e ".[m3-visual]"
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_TORCH_BACKEND=cpu
+RUN uv sync --frozen --extra m3-visual --no-dev --no-cache
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
