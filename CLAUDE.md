@@ -78,9 +78,12 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Status (v0.1.0 — deployed on Pironman)
 
-Current deployment (validated 2026-06-01):
+Current deployment (validated 2026-06-02 UTC / 2026-06-01 EDT):
 - Pironman hosts the shared tailnet MM-RAG instance from
-  `~/Projects/MM-RAG` at git commit `602cbf2`.
+  `~/Projects/MM-RAG`; the last verified running checkout is `54b474f`.
+  `main` also contains `30225d7` (`fix: report active pipeline stage`), but
+  that active-stage status fix has not been verified as deployed on Pironman
+  until the Pi checkout/image is pulled/rebuilt/restarted.
 - Streamable HTTP MCP discovery is at
   `http://100.126.176.86:8766/.well-known/mcp-resource`; the MCP endpoint is
   `http://100.126.176.86:8766/mcp`.
@@ -93,8 +96,14 @@ Current deployment (validated 2026-06-01):
   and `mmrag-worker` drains queued ingest jobs against the shared `/data`
   volume. REST is not published by this stack.
 - Pre-deploy validation passed locally with `make format`, `make lint`,
-  `make test` (103 tests), a Docker stop/restart lease probe, and an
+  `make test` (104 tests), a Docker stop/restart lease probe, and an
   authenticated remote MCP `list_tools` probe after deployment.
+- Production burn-in passed against live Pironman MCP with real YouTube ingest
+  (`https://youtu.be/8qQW4LTWgtc?si=QG2epuyKXFVjDBmk`), yielding asset
+  `b30d0b6f-a449-4837-a9ad-a9f19b6fde38`, 145 scenes, 143 transcript
+  segments, 354 frames, 642 content items, populated sqlite-vec rows, and
+  graph rows. Post-restart MCP `status` / `search` / `ask(synthesize=false)`
+  still worked.
 
 What's wired end-to-end today:
 - `uv` project with broad Python `>=3.11,<3.14` packaging; dev/deploy
@@ -119,6 +128,10 @@ What's wired end-to-end today:
   retrieval path.
 - Runner persists scenes + frames + transcript segments incrementally after each
   stage (idempotent via UNIQUE keys, so re-ingest is a no-op)
+- On `main`, the runner records the active stage at stage start for honest
+  `status(job_id)` progress, and stores `last_completed_stage` in
+  `pipeline_state_json` so cancellation/restart retries the active stage rather
+  than skipping it.
 - `search` tool runs FTS/vector/hybrid/hybrid_graph retrieval over FTS
   transcript / FTS scenes / FTS content items / vec frames / vec transcript,
   scoped by optional `asset_id` and `top_k`, snippet-highlighted.
@@ -132,7 +145,7 @@ What's wired end-to-end today:
   frames, and documents; graph nodes/edges are rebuilt from it per asset.
 - Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
   ingest → search round-trip using a TTS-generated speech fixture
-  (73/73 passing on macOS with `say`; integration tests auto-skip if no
+  (104/104 passing on macOS with `say`; integration tests auto-skip if no
   TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
 - `ModelProvider` ABC with a request-time `OllamaProvider` implementation
@@ -205,9 +218,12 @@ shared handler layer. The handlers either run the pipeline inline (for the
 sync-if-fast local `ingest` path) or delegate to a background worker that drains
 the job queue. Pi/tailnet Compose sets `MMRAG_INGEST_INLINE=false` so
 `mmrag-mcp` only enqueues/polls and `mmrag-worker` owns heavy pipeline work.
-Each pipeline stage takes a `pipeline_state` dict, returns a
-patch, and the runner persists state to the `jobs` row after every stage —
-so a worker crash mid-job is recoverable from the recorded `stage`.
+Each pipeline stage takes a `pipeline_state` dict and returns a patch. On
+`main`, the runner records the active stage to the `jobs` row at stage start,
+then persists state and advances `last_completed_stage` after stage completion.
+This keeps `status(job_id)` honest during long stages while preserving crash
+recovery: after a worker stop, the interrupted active stage is retried rather
+than skipped.
 
 Identity flows through `content_hash` (SHA-256 of the canonical mezzanine
 file). Re-ingesting the same video under a different URL is a no-op.

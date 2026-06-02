@@ -53,7 +53,8 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ `ingest` job model is **sync-if-fast, async-if-slow**: blocks for up to `wait_ms` (default 30000) and returns either a finished result or a `job_id` to poll
 - ✅ Idempotent by content hash — re-ingesting the same file under a different URL is a no-op
 - ✅ `status(job_id)` returns the live stage + progress fraction + error info
-- ✅ Crash-resumable pipeline — restart the worker mid-job and it picks up at the recorded stage
+- ✅ Crash-resumable pipeline — `jobs.stage` reports the active stage, while
+  `pipeline_state_json.last_completed_stage` drives safe resume/retry
 - ✅ FastMCP stdio server with all 4 tools registered
 - ✅ FastMCP Streamable HTTP server with shared bearer-token auth for tailnet use
 - ✅ FastAPI REST mirror on `:8765` with the same surface
@@ -244,19 +245,32 @@ make docker-pi-up
 `0.0.0.0`. Do not publish the REST mirror in this stack; keep REST local for
 admin/debug workflows.
 
-Current Pironman deployment, validated 2026-06-01:
+Current Pironman deployment, validated 2026-06-02 UTC / 2026-06-01 EDT:
 
 - Host: `pironman` (`100.126.176.86` on Tailscale)
-- Checkout: `~/Projects/MM-RAG` at commit `602cbf2`
+- Checkout: `~/Projects/MM-RAG`; last verified running checkout is `54b474f`
 - Discovery: `http://100.126.176.86:8766/.well-known/mcp-resource`
 - MCP endpoint: `http://100.126.176.86:8766/mcp`
 - Token: `MMRAG_MCP_TOKEN` in `~/Projects/MM-RAG/.env` on Pironman
 - Services: `mmrag-init` applies migrations, `mmrag-mcp` exposes MCP only,
   and `mmrag-worker` runs ingest jobs from the shared `/data` volume
 
-The deployed service was verified with the public discovery document and an
-authenticated Streamable HTTP MCP `list_tools` probe. The expected tool list is
-exactly `ingest`, `ask`, `search`, and `status`.
+The deployed service was verified with the public discovery document, an
+authenticated Streamable HTTP MCP `list_tools` probe, and a production burn-in
+against a real YouTube video. Burn-in asset
+`b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143 transcript
+segments, 354 frames, 642 content items, populated sqlite-vec rows, and graph
+rows. After restarting `mmrag-mcp` and `mmrag-worker`, MCP `status`, `search`,
+and `ask(synthesize=false)` still worked.
+
+`main` contains `30225d7` (`fix: report active pipeline stage`), which makes
+`status(job_id)` report the active stage at stage start while keeping
+`last_completed_stage` in `pipeline_state_json` for safe resume. Pull/rebuild
+and restart Pironman before expecting that status behavior from the live
+service.
+
+See [docs/pironman-burn-in.md](./docs/pironman-burn-in.md) for the exact
+burn-in evidence, persisted counts, resource shape, and deployment caveat.
 
 ---
 
@@ -498,7 +512,9 @@ tracked in `bd`. The non-negotiable rules:
 3. **One sharp tool beats five mediocre ones.** Don't bloat the surface to
    wallpaper over a missing feature.
 4. **Pipeline stages stay idempotent and resumable.** Crash recovery is a
-   first-class requirement, not an afterthought.
+   first-class requirement, not an afterthought. `jobs.stage` reports the
+   active stage; `pipeline_state_json.last_completed_stage` controls resume so
+   an interrupted active stage is retried.
 
 ---
 

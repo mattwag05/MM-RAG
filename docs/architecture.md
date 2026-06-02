@@ -92,10 +92,12 @@ Ollama process.
               └─────────────────────────────┘
 ```
 
-The runner persists `pipeline_state_json` on the `jobs` row after every
-stage. A worker crash mid-job is recoverable: on next startup the
-worker scans for `status in ('queued','running')` and resumes from the
-recorded `stage`.
+The runner records the active stage in `jobs.stage` at stage start, and
+persists `pipeline_state_json` plus `last_completed_stage` after each stage
+finishes. A worker crash mid-job is recoverable: on next startup the worker
+scans for `status in ('queued','running')` and resumes from
+`pipeline_state_json.last_completed_stage`, so the interrupted active stage is
+retried rather than skipped.
 
 `ingest` is **sync-if-fast, async-if-slow**: it blocks for up to
 `wait_ms` milliseconds (default 30000) and returns either a finished
@@ -112,10 +114,12 @@ queued → running → done
             └─→ error  (error_kind + error_message recorded)
 ```
 
-Stages, in order, are recorded in `jobs.stage`. The runner is
-idempotent and keyed on `(content_hash, stage)`: re-running advances
-only the stages that haven't yet run, and re-ingesting the same source
-under a different URL is a no-op (same SHA-256 → same asset).
+Stages, in order, are surfaced in `jobs.stage` as the current active stage.
+The last completed stage is persisted separately in
+`pipeline_state_json.last_completed_stage`. The runner is idempotent and keyed
+on `(content_hash, stage)`: re-running advances only the stages that have not
+completed, and re-ingesting the same source under a different URL is a no-op
+(same SHA-256 → same asset).
 
 ## Data model (M1 schema only)
 
@@ -180,8 +184,8 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
 
 ### Live Pironman Deployment
 
-As of 2026-06-01, MM-RAG is deployed on `pironman` from
-`~/Projects/MM-RAG` at commit `602cbf2`.
+As of 2026-06-02 UTC / 2026-06-01 EDT, MM-RAG is deployed on `pironman` from
+`~/Projects/MM-RAG`; the last verified running checkout is `54b474f`.
 
 | Surface | Value |
 |---|---|
@@ -198,6 +202,16 @@ auth metadata, and exactly the four MCP tools: `ingest`, `ask`, `search`, and
 `mmrag-worker` stay up as the long-running services. A Docker stop/restart
 probe validated that worker SIGTERM releases active job leases so interrupted
 jobs can be reclaimed after container restart.
+
+Production burn-in against the live MCP endpoint passed with a real YouTube
+ingest: asset `b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143
+transcript segments, 354 frames, 642 content items, populated sqlite-vec rows,
+and graph rows. Post-restart MCP `status`, `search`, and
+`ask(synthesize=false)` still worked. `main` contains `30225d7`
+(`fix: report active pipeline stage`) for active-stage status reporting, but
+that fix must be pulled/rebuilt/restarted on Pironman before it changes the
+live service behavior. See `docs/pironman-burn-in.md` for the full burn-in
+reference.
 
 **v1 is single-tenant.** No caller IDs, no per-caller quotas, no
 asset-visibility scoping. Auth is one shared bearer token per host.
