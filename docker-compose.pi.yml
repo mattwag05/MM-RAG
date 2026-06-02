@@ -38,6 +38,12 @@ services:
       - mmrag-data:/data
     environment:
       <<: *mmrag-pi-env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/.well-known/mcp-resource', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   mmrag-worker:
     image: mmrag:0.1.0
@@ -51,6 +57,12 @@ services:
       - mmrag-data:/data
     environment:
       <<: *mmrag-pi-env
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; import sys; cmd=Path('/proc/1/cmdline').read_bytes(); sys.exit(0 if b'mmrag\\x00worker' in cmd else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
 volumes:
   mmrag-data:
