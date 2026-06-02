@@ -111,6 +111,10 @@ MCP transport means proving the wrong thing first.
   explicitly *single-tenant*: no caller IDs, no per-caller quotas, no
   asset-visibility scoping. Auth on the streamable-HTTP endpoint is a
   shared token in env plus a Tailscale-only bind.
+  This is now live as of 2026-06-01: homelab-host hosts MM-RAG at
+  `http://203.0.113.10:8766/mcp`, with discovery at
+  `http://203.0.113.10:8766/.well-known/mcp-resource` and the shared
+  bearer token stored in `~/Projects/MM-RAG/.env` on homelab-host.
 - **`search` becomes a first-class evidence path.** `SearchOutput`
   enriches from thin hits to full `Evidence` objects (same shape as
   `ask` evidence: `summary`, `ocr_snippet`, `transcript_snippet`,

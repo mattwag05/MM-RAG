@@ -244,6 +244,20 @@ make docker-pi-up
 `0.0.0.0`. Do not publish the REST mirror in this stack; keep REST local for
 admin/debug workflows.
 
+Current homelab-host deployment, validated 2026-06-01:
+
+- Host: `homelab-host` (`203.0.113.10` on Tailscale)
+- Checkout: `~/Projects/MM-RAG` at commit `602cbf2`
+- Discovery: `http://203.0.113.10:8766/.well-known/mcp-resource`
+- MCP endpoint: `http://203.0.113.10:8766/mcp`
+- Token: `MMRAG_MCP_TOKEN` in `~/Projects/MM-RAG/.env` on homelab-host
+- Services: `mmrag-init` applies migrations, `mmrag-mcp` exposes MCP only,
+  and `mmrag-worker` runs ingest jobs from the shared `/data` volume
+
+The deployed service was verified with the public discovery document and an
+authenticated Streamable HTTP MCP `list_tools` probe. The expected tool list is
+exactly `ingest`, `ask`, `search`, and `status`.
+
 ---
 
 ## Architecture
