@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 
@@ -149,6 +150,74 @@ async def test_run_pipeline_cancel_requeues_active_job(isolated_data_dir, monkey
     assert row["status"] == "queued"
     assert row["runner_id"] is None
     assert row["runner_heartbeat_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_records_active_stage_without_marking_completed(
+    isolated_data_dir, monkeypatch
+) -> None:
+    job_id = "job-active-stage"
+    _insert_job(job_id)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[Stage] = []
+
+    async def blocking_stage(stage, state, mode):  # noqa: ANN001
+        calls.append(stage)
+        started.set()
+        await release.wait()
+        return {}
+
+    monkeypatch.setattr(runner, "M1_STAGE_ORDER", (Stage.FETCH, Stage.NORMALIZE))
+    monkeypatch.setattr(runner, "_run_stage", blocking_stage)
+
+    task = asyncio.create_task(runner.run_pipeline(job_id))
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT status, stage, progress, pipeline_state_json
+              FROM jobs
+             WHERE id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+
+    state = json.loads(row["pipeline_state_json"])
+    assert row["status"] == "running"
+    assert row["stage"] == Stage.FETCH.value
+    assert row["progress"] == 0.0
+    assert state["last_completed_stage"] == Stage.QUEUED.value
+
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    async def completing_stage(stage, state, mode):  # noqa: ANN001
+        calls.append(stage)
+        return {}
+
+    monkeypatch.setattr(runner, "_run_stage", completing_stage)
+
+    await runner.run_pipeline(job_id)
+
+    assert calls == [Stage.FETCH, Stage.FETCH, Stage.NORMALIZE]
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT status, stage, progress, pipeline_state_json
+              FROM jobs
+             WHERE id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+
+    state = json.loads(row["pipeline_state_json"])
+    assert row["status"] == "done"
+    assert row["stage"] == Stage.DONE.value
+    assert row["progress"] == 1.0
+    assert state["last_completed_stage"] == Stage.DONE.value
 
 
 def test_worker_claim_pending_skips_fresh_running_jobs(isolated_data_dir) -> None:
