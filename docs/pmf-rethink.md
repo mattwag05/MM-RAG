@@ -116,9 +116,11 @@ MCP transport means proving the wrong thing first.
   `http://203.0.113.10:8766/.well-known/mcp-resource` and the shared
   bearer token stored in `~/Projects/MM-RAG/.env` on homelab-host. Production
   burn-in passed on 2026-06-02 UTC / 2026-06-01 EDT with real YouTube ingest,
-  search, evidence-first ask, restart, and persistence checks. `main` includes
-  the `MM-RAG-x15` active-stage status fix (`30225d7`), but the last verified
-  running homelab-host checkout before this doc update was `54b474f`.
+  search, evidence-first ask, restart, and persistence checks. The final
+  stabilization pass on 2026-06-02 06:59 EDT verified checkout `b8963f2`
+  (latest code-bearing deploy `83604a7`), the `MM-RAG-x15` active-stage status
+  fix, CPU-only Docker runtime packages, atomic migrations, and [agent]/[agent-runtime]
+  MCP connectivity to the same four-tool surface.
 - **`search` becomes a first-class evidence path.** `SearchOutput`
   enriches from thin hits to full `Evidence` objects (same shape as
   `ask` evidence: `summary`, `ocr_snippet`, `transcript_snippet`,
