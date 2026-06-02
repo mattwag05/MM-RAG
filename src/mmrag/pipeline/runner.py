@@ -96,6 +96,40 @@ def _persist_state(job_id: str, state: dict, stage: Stage, progress: float) -> N
         )
 
 
+def _persist_stage_start(
+    job_id: str,
+    *,
+    state: dict,
+    active_stage: Stage,
+    last_completed_stage: Stage,
+    progress: float,
+    runner_id: str,
+) -> None:
+    persisted = _strip_internal(state)
+    persisted["last_completed_stage"] = last_completed_stage.value
+    with connect() as conn, transaction(conn):
+        conn.execute(
+            """
+            UPDATE jobs
+               SET pipeline_state_json = ?,
+                   stage = ?,
+                   progress = ?,
+                   runner_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ?
+               AND runner_id = ?
+               AND status = 'running'
+            """,
+            (
+                json.dumps(persisted),
+                active_stage.value,
+                progress,
+                job_id,
+                runner_id,
+            ),
+        )
+
+
 def _set_status(job_id: str, status: JobStatus) -> None:
     with connect() as conn, transaction(conn):
         conn.execute(
@@ -646,7 +680,8 @@ async def run_pipeline(job_id: str) -> None:
     state: dict = json.loads(row["pipeline_state_json"] or "{}")
     state.setdefault("source", row["source"])
     state["__job_id"] = job_id
-    completed_stage = Stage(row["stage"]) if row["stage"] else Stage.QUEUED
+    last_completed = state.get("last_completed_stage") or row["stage"]
+    completed_stage = Stage(last_completed) if last_completed else Stage.QUEUED
     completed_idx = (
         M1_STAGE_ORDER.index(completed_stage) if completed_stage in M1_STAGE_ORDER else -1
     )
@@ -663,6 +698,14 @@ async def run_pipeline(job_id: str) -> None:
                 continue
 
             log.info("stage.start", job_id=job_id, stage=stage.value)
+            _persist_stage_start(
+                job_id,
+                state=state,
+                active_stage=stage,
+                last_completed_stage=completed_stage,
+                progress=idx / n_stages,
+                runner_id=runner_id,
+            )
             patch = await _run_stage(stage, state, mode)
             state.update(patch or {})
             if stage is Stage.NORMALIZE and "content_hash" in state:
@@ -748,6 +791,8 @@ async def run_pipeline(job_id: str) -> None:
                     summaries=state.get("summaries", []),
                 )
                 rewrite_content_items_for_asset(state["asset_id"])
+            completed_stage = stage
+            state["last_completed_stage"] = stage.value
             progress = (idx + 1) / n_stages
             _persist_state(job_id, _strip_internal(state), stage, progress)
             _refresh_lease(job_id, runner_id)
@@ -759,6 +804,7 @@ async def run_pipeline(job_id: str) -> None:
             )
 
         # After SUMMARIZE we mark the job done.
+        state["last_completed_stage"] = Stage.DONE.value
         _persist_state(job_id, _strip_internal(state), Stage.DONE, 1.0)
         _set_status(job_id, JobStatus.DONE)
         await _push_to_sbt_if_requested(state.get("asset_id"), push_to_sbt)
