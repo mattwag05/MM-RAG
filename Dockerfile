@@ -24,9 +24,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* README.md LICENSE ./
 COPY src ./src
 
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
-    UV_TORCH_BACKEND=cpu
-RUN uv sync --frozen --extra m3-visual --no-dev --no-cache
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN uv venv /app/.venv \
+ && uv export --quiet --frozen --extra m3-visual --no-dev --no-emit-project --no-hashes --output-file /tmp/constraints.txt \
+ && uv pip install --python /app/.venv/bin/python --torch-backend cpu --no-cache --constraints /tmp/constraints.txt -e ".[m3-visual]" \
+ && rm /tmp/constraints.txt
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
