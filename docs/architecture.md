@@ -175,7 +175,9 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
   `MMRAG_MCP_PATH=/mcp`; non-loopback binds fail without a token. Published
   `.well-known/mcp-resource` for client discovery. This is
   how Talia, Gus, Kit, and Claude Code all query the same MM-RAG
-  instance hosted on Pironman.
+  instance hosted on Pironman. Talia/Hermes is wired as an authenticated
+  `mmrag` MCP client, with the bearer token supplied by Hermes env
+  interpolation rather than checked into any repo file.
 - **REST** (`serve-api`): admin + debug surface, not the agent path.
 - **Pi/Pironman deploy**: `docker-compose.pi.yml` runs `mmrag-init`,
   `mmrag-mcp`, and `mmrag-worker` against one `/data` volume. Only MCP HTTP
@@ -184,8 +186,10 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
 
 ### Live Pironman Deployment
 
-As of 2026-06-02 UTC / 2026-06-01 EDT, MM-RAG is deployed on `pironman` from
-`~/Projects/MM-RAG`; the last verified running checkout is `54b474f`.
+As of 2026-06-02 06:59 EDT / 2026-06-02 10:59 UTC, MM-RAG is deployed on
+`pironman` from `~/Projects/MM-RAG`; the last verified checkout is `b8963f2`.
+The latest code-bearing deploy is `83604a7`; `b8963f2` only closes Beads
+tracking on top of that deployed code.
 
 | Surface | Value |
 |---|---|
@@ -194,6 +198,7 @@ As of 2026-06-02 UTC / 2026-06-01 EDT, MM-RAG is deployed on `pironman` from
 | MCP endpoint | `http://100.126.176.86:8766/mcp` |
 | Auth | `Authorization: Bearer <MMRAG_MCP_TOKEN>` |
 | Token location | `~/Projects/MM-RAG/.env` on Pironman |
+| Talia/Hermes client | `mcp_servers.mmrag`, token from `MCP_MMRAG_API_KEY` |
 | Published services | MCP HTTP only; REST is not exposed by the Pi stack |
 
 The deployed discovery document advertises `transport=streamable-http`, bearer
@@ -207,11 +212,11 @@ Production burn-in against the live MCP endpoint passed with a real YouTube
 ingest: asset `b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143
 transcript segments, 354 frames, 642 content items, populated sqlite-vec rows,
 and graph rows. Post-restart MCP `status`, `search`, and
-`ask(synthesize=false)` still worked. `main` contains `30225d7`
-(`fix: report active pipeline stage`) for active-stage status reporting, but
-that fix must be pulled/rebuilt/restarted on Pironman before it changes the
-live service behavior. See `docs/pironman-burn-in.md` for the full burn-in
-reference.
+`ask(synthesize=false)` still worked. The live service includes the `30225d7`
+active-stage status fix, the CPU-only Docker dependency fix, and the atomic
+SQLite migration runner fix. The final stabilization check also verified
+`hermes mcp test mmrag` against the live endpoint. See
+`docs/pironman-burn-in.md` for the full burn-in reference.
 
 **v1 is single-tenant.** No caller IDs, no per-caller quotas, no
 asset-visibility scoping. Auth is one shared bearer token per host.

@@ -245,15 +245,19 @@ make docker-pi-up
 `0.0.0.0`. Do not publish the REST mirror in this stack; keep REST local for
 admin/debug workflows.
 
-Current Pironman deployment, validated 2026-06-02 UTC / 2026-06-01 EDT:
+Current Pironman deployment, validated 2026-06-02 06:59 EDT / 2026-06-02 10:59 UTC:
 
 - Host: `pironman` (`100.126.176.86` on Tailscale)
-- Checkout: `~/Projects/MM-RAG`; last verified running checkout is `54b474f`
+- Checkout: `~/Projects/MM-RAG`; last verified checkout is `b8963f2`
+- Latest code-bearing deploy: `83604a7` (`b8963f2` only closes Beads tracking
+  on top of the deployed code)
 - Discovery: `http://100.126.176.86:8766/.well-known/mcp-resource`
 - MCP endpoint: `http://100.126.176.86:8766/mcp`
 - Token: `MMRAG_MCP_TOKEN` in `~/Projects/MM-RAG/.env` on Pironman
 - Services: `mmrag-init` applies migrations, `mmrag-mcp` exposes MCP only,
   and `mmrag-worker` runs ingest jobs from the shared `/data` volume
+- Talia/Hermes client: configured as the `mmrag` Streamable HTTP MCP server,
+  with its bearer token read from local Hermes env as `MCP_MMRAG_API_KEY`
 
 The deployed service was verified with the public discovery document, an
 authenticated Streamable HTTP MCP `list_tools` probe, and a production burn-in
@@ -261,16 +265,12 @@ against a real YouTube video. Burn-in asset
 `b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143 transcript
 segments, 354 frames, 642 content items, populated sqlite-vec rows, and graph
 rows. After restarting `mmrag-mcp` and `mmrag-worker`, MCP `status`, `search`,
-and `ask(synthesize=false)` still worked.
-
-`main` contains `30225d7` (`fix: report active pipeline stage`), which makes
-`status(job_id)` report the active stage at stage start while keeping
-`last_completed_stage` in `pipeline_state_json` for safe resume. Pull/rebuild
-and restart Pironman before expecting that status behavior from the live
-service.
+and `ask(synthesize=false)` still worked. The live service now includes the
+`30225d7` active-stage status fix, the CPU-only Docker dependency fix, and the
+atomic migration runner fix.
 
 See [docs/pironman-burn-in.md](./docs/pironman-burn-in.md) for the exact
-burn-in evidence, persisted counts, resource shape, and deployment caveat.
+burn-in evidence, persisted counts, resource shape, and stabilization notes.
 
 ---
 

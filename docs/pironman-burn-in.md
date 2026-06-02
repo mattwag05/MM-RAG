@@ -1,6 +1,8 @@
 # Pironman Burn-In Reference
 
-Validated 2026-06-02 UTC / 2026-06-01 EDT.
+Initial burn-in validated 2026-06-02 UTC / 2026-06-01 EDT. Stabilization
+checks refreshed the live service state on 2026-06-02 06:59 EDT /
+2026-06-02 10:59 UTC.
 
 ## Live Surface
 
@@ -10,6 +12,8 @@ Validated 2026-06-02 UTC / 2026-06-01 EDT.
 - MCP endpoint: `http://100.126.176.86:8766/mcp`
 - Token location: `~/Projects/MM-RAG/.env` on Pironman
 - Compose file: `~/Projects/MM-RAG/docker-compose.pi.yml`
+- Last verified checkout: `b8963f2`
+- Latest code-bearing deploy: `83604a7`
 - Long-running services: `mmrag-mcp`, `mmrag-worker`
 - One-shot service: `mmrag-init`
 
@@ -33,6 +37,9 @@ only into a local shell variable when a probe needs authenticated MCP.
   `answer=null` and non-empty evidence.
 - Restarted `mmrag-mcp` and `mmrag-worker`; post-restart MCP `status`,
   `search`, and `ask` still passed.
+- Active-stage status reporting now updates at stage start on the live service.
+- Talia/Hermes connected to the live endpoint with bearer auth and discovered
+  exactly the same four MM-RAG tools.
 
 ## Persisted Counts
 
@@ -53,9 +60,14 @@ During first-run model downloads and CPU inference:
 
 - `mmrag-worker` peaked around 1.9 GiB RAM during SigLIP model load/embed.
 - `mmrag-mcp` stayed small, roughly tens of MiB.
-- Disk remained healthy: root filesystem about 19% used after burn-in.
+- The final idle stabilization check saw both long-running containers around
+  65 MiB each.
+- Docker build-cache pruning reclaimed the oversized Pi build cache; root
+  filesystem was about 9% used at the final check.
 - Host swap was already partly used by the broader homelab before the run, so
   watch total host pressure during future large ingests.
+- The running image was verified to use CPU packages:
+  `torch==2.11.0+cpu`, `torchvision==0.26.0+cpu`, and `transformers==5.5.4`.
 
 ## Follow-Up Found And Fixed
 
@@ -65,6 +77,8 @@ This was tracked as `MM-RAG-x15` and fixed on `main` at `30225d7` by recording
 the active stage at stage start while keeping
 `pipeline_state_json.last_completed_stage` for safe resume.
 
-Important deployment caveat: as of the doc update, the last verified running
-Pironman checkout was `54b474f`; deploy `30225d7` or newer before expecting
-the active-stage status behavior on the live service.
+That fix is now verified on Pironman. The later stabilization loop also fixed
+Docker lockfile/CPU dependency drift (`MM-RAG-dkj`), pruned oversized Docker
+build cache (`MM-RAG-fxu`), applied migrations atomically
+(`MM-RAG-haq`), and connected Talia/Hermes to the live MCP service
+(`MM-RAG-51s`).

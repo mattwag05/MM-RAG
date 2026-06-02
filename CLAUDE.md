@@ -76,14 +76,19 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 > `git push`); hydrate a fresh clone with `bd dolt pull`. The project's original
 > issue history was lost this way before the M5 machine transition.
 
+> **Restart/redeploy validation rule.** After restarting or redeploying any
+> service, revalidate known dependent agents, services, pipelines, and client
+> integrations that use that service before calling the work complete.
+
 ## Status (v0.1.0 — deployed on Pironman)
 
-Current deployment (validated 2026-06-02 UTC / 2026-06-01 EDT):
+Current deployment (validated 2026-06-02 06:59 EDT / 2026-06-02 10:59 UTC):
 - Pironman hosts the shared tailnet MM-RAG instance from
-  `~/Projects/MM-RAG`; the last verified running checkout is `54b474f`.
-  `main` also contains `30225d7` (`fix: report active pipeline stage`), but
-  that active-stage status fix has not been verified as deployed on Pironman
-  until the Pi checkout/image is pulled/rebuilt/restarted.
+  `~/Projects/MM-RAG`; the last verified checkout is `b8963f2`. The latest
+  code-bearing deployment is `83604a7`; `b8963f2` only closes Beads tracking
+  work on top of that deploy.
+- The live service includes the `30225d7` active-stage status fix, the
+  CPU-only Docker dependency fix, and atomic SQLite migration application.
 - Streamable HTTP MCP discovery is at
   `http://100.126.176.86:8766/.well-known/mcp-resource`; the MCP endpoint is
   `http://100.126.176.86:8766/mcp`.
@@ -96,7 +101,7 @@ Current deployment (validated 2026-06-02 UTC / 2026-06-01 EDT):
   and `mmrag-worker` drains queued ingest jobs against the shared `/data`
   volume. REST is not published by this stack.
 - Pre-deploy validation passed locally with `make format`, `make lint`,
-  `make test` (104 tests), a Docker stop/restart lease probe, and an
+  `make test` (106 tests), a Docker stop/restart lease probe, and an
   authenticated remote MCP `list_tools` probe after deployment.
 - Production burn-in passed against live Pironman MCP with real YouTube ingest
   (`https://youtu.be/8qQW4LTWgtc?si=QG2epuyKXFVjDBmk`), yielding asset
@@ -104,6 +109,11 @@ Current deployment (validated 2026-06-02 UTC / 2026-06-01 EDT):
   segments, 354 frames, 642 content items, populated sqlite-vec rows, and
   graph rows. Post-restart MCP `status` / `search` / `ask(synthesize=false)`
   still worked.
+- Final 7am stabilization checks found `mmrag-mcp` and `mmrag-worker` healthy,
+  no recent MM-RAG warnings/errors, idle service memory around 65 MiB each,
+  root disk around 9% used after Docker build-cache pruning, and running image
+  packages `torch==2.11.0+cpu`, `torchvision==0.26.0+cpu`, and
+  `transformers==5.5.4`.
 
 What's wired end-to-end today:
 - `uv` project with broad Python `>=3.11,<3.14` packaging; dev/deploy
@@ -111,6 +121,9 @@ What's wired end-to-end today:
 - FastMCP stdio server with all 4 tools (`mmrag serve-mcp`)
 - FastMCP Streamable HTTP server with the same 4 tools (`mmrag serve-mcp-http`)
   for shared tailnet access; non-loopback binds require `MMRAG_MCP_TOKEN`.
+- Talia/Hermes is configured as an authenticated Streamable HTTP MCP client
+  for the live Pironman service. Hermes reads the bearer token from its local
+  env as `MCP_MMRAG_API_KEY`; do not copy token values into repo files.
 - FastAPI REST mirror on `:8765` (`mmrag serve-api`)
 - Background worker that drains the job queue (`mmrag worker`)
 - SQLite WAL store, migration runner, M1–M7/2.x foundation schema (`assets`, `jobs`,
@@ -145,7 +158,7 @@ What's wired end-to-end today:
   frames, and documents; graph nodes/edges are rebuilt from it per asset.
 - Pydantic schema contract tests + pipeline unit tests + end-to-end MCP
   ingest → search round-trip using a TTS-generated speech fixture
-  (104/104 passing on macOS with `say`; integration tests auto-skip if no
+  (106/106 passing on macOS with `say`; integration tests auto-skip if no
   TTS tool is available)
 - Subprocess wrapper with SIGTERM → SIGKILL escalation (Pippin-pattern)
 - `ModelProvider` ABC with a request-time `OllamaProvider` implementation
@@ -263,10 +276,11 @@ See `docs/architecture.md` for the diagram and the full data flow.
   filename can also trip Python 3.13's hidden-file check in `site.py`.
   `mmrag` uses `setuptools` for exactly this reason — the pyproject.toml
   comment explains it. Don't switch back without a permanent fix.
-- **`executescript()` implicitly commits.** SQLite's `executescript` calls
-  `commit` before running, so wrapping it in a manual `BEGIN/COMMIT`
-  context manager fails with "cannot commit - no transaction is active."
-  `db/migrations.py` runs `executescript` directly in autocommit mode.
+- **`executescript()` implicitly commits before running.** If a migration needs
+  to be atomic, put `BEGIN` / `COMMIT` inside the SQL script itself. The
+  migration runner creates `schema_migrations` first, then executes each
+  migration body plus its `schema_migrations` insert in one explicit script
+  transaction.
 - **Asset identity is content-hash, not URL.** Re-ingesting the same file
   under a different URL produces the same `assets` row. The runner's
   `_upsert_asset` reconciles `asset_id` if a hash collision is found.
