@@ -197,6 +197,12 @@ real application. Scope unchanged from the original issue, priority
 drops to P3 behind the Pi deploy. Marks the transition from "tool
 works" to "tool is integrated somewhere real."
 
+Status note from the 2026-06-04 audit: MM-RAG-side client support exists
+(`push_to_sbt=true`, `MMRAG_SBT_URL`, `src/mmrag/sbt_client.py`, and tests),
+but the SBT app was not present at the documented local path, and no SBT-side
+receiver/schema/FTS smoke test could be run. Treat M7 as partial until the
+receiver is located or restored and validated end to end.
+
 ## v1 single-tenant assumption (explicit)
 
 v1 is single-tenant by design:

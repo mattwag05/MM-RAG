@@ -76,7 +76,10 @@ which clip in your library is the one where the onboarding modal appears.
   items, scenes, frames, segments, and topics.
 - ✅ Optional vector backend protocol with SQLite default and a Qdrant
   selection hook for homelab experiments.
-- ✅ Optional Social Bookmarks Triage push via `push_to_sbt=true`.
+- ✅ MM-RAG-side Social Bookmarks Triage push client via `push_to_sbt=true`.
+  The SBT receiver app was not available at the documented local path during
+  the 2026-06-04 audit, so end-to-end SBT receiver validation is tracked
+  separately.
 - ✅ Pi/tailnet Docker Compose path for MCP HTTP + worker, with no bundled
   Ollama/Gemma dependency. The MCP service enqueues ingests and the worker
   owns pipeline execution in this profile.
@@ -430,7 +433,7 @@ independently testable; the project pauses for review between them.
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
 | **M6** | ✅ | Raspberry Pi / Pironman deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
-| **M7** | ✅ | Social Bookmarks Triage REST integration as a reference consumer |
+| **M7** | Partial | MM-RAG-side Social Bookmarks Triage REST client is implemented; SBT-side receiver/schema validation is pending |
 | **2.x foundation** | ✅ | Document ingestion via `content_items`, graph-aware `hybrid_graph` retrieval, and optional vector backend protocol |
 
 **Deferred** (tracked, not forgotten): speaker diarization, PaddleOCR,
@@ -463,7 +466,7 @@ MM-RAG/
     ├── mcp_server.py          # FastMCP stdio + Streamable HTTP app factory
     ├── api.py                 # FastAPI REST mirror
     ├── worker.py              # job-queue drain
-    ├── sbt_client.py          # Social Bookmarks Triage REST client (M7)
+    ├── sbt_client.py          # MM-RAG-side Social Bookmarks Triage REST client
     ├── db/
     │   ├── connection.py      # WAL pragma, transaction helpers
     │   ├── migrations.py      # idempotent migration runner

@@ -178,9 +178,12 @@ Shipped:
 - **M5** — streamable-HTTP MCP transport for one shared tailnet service (`MMRAG_MCP_HOST` / `MMRAG_MCP_PORT` / `MMRAG_MCP_PATH`, protected by `MMRAG_MCP_TOKEN` when not loopback). Discovery metadata is served at `/.well-known/mcp-resource`.
 - **M6** — Pi / Pironman deploy path: MCP HTTP + worker Compose stack,
   token-required tailnet bind, M3 visual runtime deps, no bundled Gemma/Ollama.
+- **M7 client side** — optional Social Bookmarks Triage push from MM-RAG via
+  `push_to_sbt=true` and `MMRAG_SBT_URL`.
 
 Open milestones (see `bd ready` and `docs/pmf-rethink.md` for full rationale):
-- **M7** — Social Bookmarks Triage REST integration (reference consumer, not core)
+- **M7 receiver validation** — locate or restore the SBT app, confirm its REST
+  route/schema/FTS behavior, and run an end-to-end `push_to_sbt=true` smoke.
 - **MM-RAG 2.x follow-ups** — document ingestion, graph retrieval, and optional vector backends (tracked in Beads)
 
 v1 is a **single-tenant tailnet service**: one MM-RAG instance, shared bearer token in env, Tailscale-only bind. No caller IDs, no per-caller quotas, no asset-visibility scoping. Multi-tenant auth is post-v1. See `docs/pmf-rethink.md` for the thesis and audit behind this ordering.
@@ -383,7 +386,10 @@ look at these references rather than reinventing:
 
 ## Integration target: Social Bookmarks Triage
 
-M7 will push enrichment payloads to SBT via REST:
+MM-RAG has M7 client-side support that pushes enrichment payloads to SBT via
+REST when `push_to_sbt=true` and `MMRAG_SBT_URL` is configured. The 2026-06-04
+audit did not find the SBT app at the documented local path, so SBT-side
+receiver/schema validation remains pending.
 
 - SBT lives at `~/Desktop/Projects/Social Bookmarks Triage` (Next.js + Prisma + SQLite, keyed on `postId`)
 - Existing pattern to follow: `app/api/import/url/route.ts`
