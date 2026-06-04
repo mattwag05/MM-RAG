@@ -85,6 +85,77 @@ def worker() -> None:
     asyncio.run(run_worker_until_signalled())
 
 
+@app.command("check-mcp-health")
+def check_mcp_health(
+    public_url: str = typer.Option(
+        "http://203.0.113.10:8766",
+        help="Base URL for the deployed MCP HTTP service.",
+    ),
+    mcp_path: str = typer.Option("/mcp", help="Streamable HTTP MCP path."),
+    token_env: str = typer.Option(
+        "MMRAG_MCP_TOKEN,MCP_MMRAG_API_KEY",
+        help="Comma-separated bearer-token env var names to try, in order.",
+    ),
+    job_id: str = typer.Option(
+        "da7c953e-a6db-45e9-bb1e-57237f144ebe",
+        help="Known completed burn-in job id for status validation.",
+    ),
+    asset_id: str = typer.Option(
+        "b30d0b6f-a449-4837-a9ad-a9f19b6fde38",
+        help="Known burn-in asset id for scoped search/ask validation.",
+    ),
+    search_query: str = typer.Option("Hestia", help="Known query for scoped search."),
+    ask_question: str = typer.Option(
+        "What is this video about?",
+        help="Question for evidence-first ask validation.",
+    ),
+    top_k: int = typer.Option(3, min=1, help="Search result count for validation."),
+    timeout_s: float = typer.Option(15.0, min=1.0, help="Network timeout in seconds."),
+    hermes_server: str | None = typer.Option(
+        "mmrag",
+        help="[agent-runtime] MCP server name to test; pass empty string to skip.",
+    ),
+) -> None:
+    """Run the standard post-restart homelab-host MCP health check."""
+    from mmrag.ops.mcp_health import (
+        HealthCheckConfig,
+        HealthCheckError,
+        parse_token_envs,
+        run_health_check_sync,
+    )
+
+    server_name = hermes_server.strip() if hermes_server else None
+    config = HealthCheckConfig(
+        public_url=public_url,
+        mcp_path=mcp_path,
+        token_envs=parse_token_envs(token_env),
+        job_id=job_id,
+        asset_id=asset_id,
+        search_query=search_query,
+        ask_question=ask_question,
+        top_k=top_k,
+        timeout_s=timeout_s,
+        hermes_server=server_name or None,
+    )
+
+    try:
+        summary = run_health_check_sync(config)
+    except HealthCheckError as e:
+        typer.echo(f"MM-RAG MCP health check failed: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    typer.echo("MM-RAG MCP health check passed")
+    typer.echo(f"discovery: {summary.discovery_url}")
+    typer.echo(f"mcp: {summary.mcp_url}")
+    typer.echo(f"token_env: {summary.token_env}")
+    typer.echo(f"tools: {', '.join(summary.tools)}")
+    typer.echo(f"status: {summary.job_status}")
+    typer.echo(f"search_hits: {summary.search_hits}")
+    typer.echo(f"ask_evidence: {summary.ask_evidence}")
+    if summary.hermes_checked:
+        typer.echo(f"agent-runtime: {'ok' if summary.hermes_ok else 'failed'}")
+
+
 @app.command("version")
 def version() -> None:
     """Print the mmrag version."""

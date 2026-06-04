@@ -23,6 +23,7 @@ classifiers = [
 # core because the shipped v1 schema creates vec0 tables at init time.
 dependencies = [
   "fastapi>=0.115",
+  "httpx>=0.27",
   "uvicorn[standard]>=0.32",
   "mcp>=1.2",
   "pydantic>=2.9",
@@ -51,7 +52,6 @@ m3-visual = [
   "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
 ]
 reasoning = [
-  "httpx>=0.27",
 ]
 
 [project.scripts]

@@ -208,6 +208,11 @@ auth metadata, and exactly the four MCP tools: `ingest`, `ask`, `search`, and
 probe validated that worker SIGTERM releases active job leases so interrupted
 jobs can be reclaimed after container restart.
 
+After any restart or redeploy, run `make check-homelab-host-mcp` from a shell that
+has `MMRAG_MCP_TOKEN` or `MCP_MMRAG_API_KEY` set. The check verifies public
+discovery metadata, authenticated MCP `list_tools`, `status`, scoped `search`,
+evidence-first `ask`, and [agent-runtime]/[agent] connectivity via `agent-runtime mcp test mmrag`.
+
 Production burn-in against the live MCP endpoint passed with a real YouTube
 ingest: asset `b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143
 transcript segments, 354 frames, 642 content items, populated sqlite-vec rows,

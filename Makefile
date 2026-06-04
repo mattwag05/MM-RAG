@@ -23,7 +23,7 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual
 
-.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http worker docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-homelab-host-mcp worker docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
 
 help:
 	@echo "Targets:"
@@ -37,6 +37,7 @@ help:
 	@echo "  make serve-api   # FastAPI on :8765"
 	@echo "  make serve-mcp   # FastMCP over stdio"
 	@echo "  make serve-mcp-http # FastMCP Streamable HTTP on :8766"
+	@echo "  make check-homelab-host-mcp # validate live homelab-host MCP + [agent-runtime]"
 	@echo "  make worker      # drain the job queue"
 	@echo "  make clean       # remove venv + caches"
 	@echo "  make docker-build"
@@ -75,6 +76,9 @@ serve-mcp:
 
 serve-mcp-http:
 	$(UV_RUN) mmrag serve-mcp-http
+
+check-homelab-host-mcp:
+	$(UV_RUN) mmrag check-mcp-health
 
 worker:
 	$(UV_RUN) mmrag worker

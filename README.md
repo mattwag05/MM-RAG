@@ -272,6 +272,17 @@ atomic migration runner fix.
 See [docs/homelab-host-burn-in.md](./docs/homelab-host-burn-in.md) for the exact
 burn-in evidence, persisted counts, resource shape, and stabilization notes.
 
+Post-restart health check:
+
+```bash
+export MMRAG_MCP_TOKEN='shared-secret'   # or export MCP_MMRAG_API_KEY
+make check-homelab-host-mcp
+```
+
+The check verifies discovery metadata, the authenticated MCP tool surface,
+`status`, scoped `search`, evidence-first `ask`, and `agent-runtime mcp test mmrag`.
+Keep token values outside repo files and shell history.
+
 ---
 
 ## Architecture
