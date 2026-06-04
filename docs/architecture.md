@@ -258,6 +258,7 @@ the full rationale behind the current milestone ordering.
 - **M6** **(shipped)** brings the Pi / homelab-host deploy path. The image
   includes M3 visual runtime deps and the Compose stack exposes MCP HTTP +
   worker without bundling Gemma 4 or Ollama.
-- **M7** brings the SBT integration. Demoted from P2 because it's a
-  reference consumer, not a core PMF feature.
+- **M7 client side** ships the optional SBT push path from MM-RAG. Full
+  reference-consumer validation remains pending until the SBT receiver app,
+  schema, and FTS behavior are available for an end-to-end smoke.
 - **post-v1**: bundled reasoning `[reasoning]` extra (`MM-RAG-rif`).
