@@ -272,6 +272,17 @@ atomic migration runner fix.
 See [docs/pironman-burn-in.md](./docs/pironman-burn-in.md) for the exact
 burn-in evidence, persisted counts, resource shape, and stabilization notes.
 
+Post-restart health check:
+
+```bash
+export MMRAG_MCP_TOKEN='shared-secret'   # or export MCP_MMRAG_API_KEY
+make check-pironman-mcp
+```
+
+The check verifies discovery metadata, the authenticated MCP tool surface,
+`status`, scoped `search`, evidence-first `ask`, and `hermes mcp test mmrag`.
+Keep token values outside repo files and shell history.
+
 ---
 
 ## Architecture

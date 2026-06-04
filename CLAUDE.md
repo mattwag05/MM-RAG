@@ -114,6 +114,8 @@ Current deployment (validated 2026-06-02 06:59 EDT / 2026-06-02 10:59 UTC):
   root disk around 9% used after Docker build-cache pruning, and running image
   packages `torch==2.11.0+cpu`, `torchvision==0.26.0+cpu`, and
   `transformers==5.5.4`.
+- Standard post-restart validation is `make check-pironman-mcp`, with a bearer
+  token supplied through `MMRAG_MCP_TOKEN` or `MCP_MMRAG_API_KEY`.
 
 What's wired end-to-end today:
 - `uv` project with broad Python `>=3.11,<3.14` packaging; dev/deploy
@@ -195,6 +197,7 @@ make init-db                              # create the SQLite DB at MMRAG_DATA_D
 make serve-api                            # FastAPI on :8765
 make serve-mcp                            # FastMCP over stdio
 make serve-mcp-http                       # FastMCP Streamable HTTP on :8766
+make check-pironman-mcp                   # validate live Pironman MCP + Hermes
 make worker                               # drain the job queue
 make test                                 # full test suite (73 tests)
 make lint                                 # ruff check  src tests (correctness/style gate)
