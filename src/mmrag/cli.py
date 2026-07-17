@@ -88,7 +88,7 @@ def worker() -> None:
 @app.command("check-mcp-health")
 def check_mcp_health(
     public_url: str = typer.Option(
-        "http://203.0.113.10:8766",
+        "http://127.0.0.1:8766",
         help="Base URL for the deployed MCP HTTP service.",
     ),
     mcp_path: str = typer.Option("/mcp", help="Streamable HTTP MCP path."),
@@ -111,12 +111,8 @@ def check_mcp_health(
     ),
     top_k: int = typer.Option(3, min=1, help="Search result count for validation."),
     timeout_s: float = typer.Option(15.0, min=1.0, help="Network timeout in seconds."),
-    hermes_server: str | None = typer.Option(
-        "mmrag",
-        help="[agent-runtime] MCP server name to test; pass empty string to skip.",
-    ),
 ) -> None:
-    """Run the standard post-restart homelab-host MCP health check."""
+    """Run the standard post-restart MCP health check."""
     from mmrag.ops.mcp_health import (
         HealthCheckConfig,
         HealthCheckError,
@@ -124,7 +120,6 @@ def check_mcp_health(
         run_health_check_sync,
     )
 
-    server_name = hermes_server.strip() if hermes_server else None
     config = HealthCheckConfig(
         public_url=public_url,
         mcp_path=mcp_path,
@@ -135,7 +130,6 @@ def check_mcp_health(
         ask_question=ask_question,
         top_k=top_k,
         timeout_s=timeout_s,
-        hermes_server=server_name or None,
     )
 
     try:
@@ -152,8 +146,6 @@ def check_mcp_health(
     typer.echo(f"status: {summary.job_status}")
     typer.echo(f"search_hits: {summary.search_hits}")
     typer.echo(f"ask_evidence: {summary.ask_evidence}")
-    if summary.hermes_checked:
-        typer.echo(f"agent-runtime: {'ok' if summary.hermes_ok else 'failed'}")
 
 
 @app.command("version")

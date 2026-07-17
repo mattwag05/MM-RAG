@@ -17,9 +17,9 @@ calling agent can reason with its own LLM. Bundled reasoning (Gemma 4
 via Ollama) is an optional `[reasoning]` extra — core install has no
 Ollama dependency. See `docs/pmf-rethink.md` for the thesis.
 
-Mac is the dev home. Pi / homelab-host is the deployment floor — one
-shared tailnet-hosted instance, streamable-HTTP MCP transport, all edge
-agents hit the same index. Stack choices are made so "deploy to Pi" is
+A laptop is the dev home. A Raspberry Pi–class server is the deployment
+floor — one shared tailnet-hosted instance, streamable-HTTP MCP transport,
+all edge agents hit the same index. Stack choices are made so "deploy to Pi" is
 a config change, not a rewrite.
 
 ## Stack (MIT/Apache/BSD-clean)
@@ -174,54 +174,45 @@ REST-only (not exposed to MCP clients): `reindex`, `retry`,
   Defaults are `MMRAG_MCP_HOST=127.0.0.1`, `MMRAG_MCP_PORT=8766`, and
   `MMRAG_MCP_PATH=/mcp`; non-loopback binds fail without a token. Published
   `.well-known/mcp-resource` for client discovery. This is
-  how [agent], [agent], Kit, and Claude Code all query the same MM-RAG
-  instance hosted on homelab-host. [agent]/[agent-runtime] is wired as an authenticated
-  `mmrag` MCP client, with the bearer token supplied by [agent-runtime] env
+  how multiple MCP clients (AI agents, Claude Code) all query the same
+  self-hosted MM-RAG instance. Each is wired as an authenticated
+  `mmrag` MCP client, with the bearer token supplied by env
   interpolation rather than checked into any repo file.
 - **REST** (`serve-api`): admin + debug surface, not the agent path.
-- **Pi/homelab-host deploy**: `docker-compose.pi.yml` runs `mmrag-init`,
+- **Pi deploy**: `docker-compose.pi.yml` runs `mmrag-init`,
   `mmrag-mcp`, and `mmrag-worker` against one `/data` volume. Only MCP HTTP
   is published; REST stays off the tailnet-facing Compose path. Ingest is
   queue-only in `mmrag-mcp` for this profile.
 
-### Live homelab-host Deployment
+### Deployment reference
 
-As of 2026-06-02 06:59 EDT / 2026-06-02 10:59 UTC, MM-RAG is deployed on
-`homelab-host` from `~/Projects/MM-RAG`; the last verified checkout is `b8963f2`.
-The latest code-bearing deploy is `83604a7`; `b8963f2` only closes Beads
-tracking on top of that deployed code.
+MM-RAG deploys from a checkout on the server via `docker-compose.pi.yml`.
 
 | Surface | Value |
 |---|---|
-| Tailscale host | `203.0.113.10` |
-| Discovery | `http://203.0.113.10:8766/.well-known/mcp-resource` |
-| MCP endpoint | `http://203.0.113.10:8766/mcp` |
+| Discovery | `http://<server-ip>:8766/.well-known/mcp-resource` |
+| MCP endpoint | `http://<server-ip>:8766/mcp` |
 | Auth | `Authorization: Bearer <MMRAG_MCP_TOKEN>` |
-| Token location | `~/Projects/MM-RAG/.env` on homelab-host |
-| [agent]/[agent-runtime] client | `mcp_servers.mmrag`, token from `MCP_MMRAG_API_KEY` |
+| Token location | `.env` in the server checkout |
+| MCP clients | `mcp_servers.mmrag`, token from `MCP_MMRAG_API_KEY` |
 | Published services | MCP HTTP only; REST is not exposed by the Pi stack |
 
-The deployed discovery document advertises `transport=streamable-http`, bearer
+The discovery document advertises `transport=streamable-http`, bearer
 auth metadata, and exactly the four MCP tools: `ingest`, `ask`, `search`, and
 `status`. `mmrag-init` applies SQLite migrations once, then `mmrag-mcp` and
 `mmrag-worker` stay up as the long-running services. A Docker stop/restart
 probe validated that worker SIGTERM releases active job leases so interrupted
 jobs can be reclaimed after container restart.
 
-After any restart or redeploy, run `make check-homelab-host-mcp` from a shell that
+After any restart or redeploy, run `make check-mcp` from a shell that
 has `MMRAG_MCP_TOKEN` or `MCP_MMRAG_API_KEY` set. The check verifies public
 discovery metadata, authenticated MCP `list_tools`, `status`, scoped `search`,
-evidence-first `ask`, and [agent-runtime]/[agent] connectivity via `agent-runtime mcp test mmrag`.
+and evidence-first `ask`.
 
-Production burn-in against the live MCP endpoint passed with a real YouTube
-ingest: asset `b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143
-transcript segments, 354 frames, 642 content items, populated sqlite-vec rows,
-and graph rows. Post-restart MCP `status`, `search`, and
-`ask(synthesize=false)` still worked. The live service includes the `30225d7`
-active-stage status fix, the CPU-only Docker dependency fix, and the atomic
-SQLite migration runner fix. The final stabilization check also verified
-`agent-runtime mcp test mmrag` against the live endpoint. See
-`docs/homelab-host-burn-in.md` for the full burn-in reference.
+Production burn-in against a live MCP endpoint passed with a real YouTube
+ingest: one asset produced 145 scenes, 143 transcript segments, 354 frames,
+642 content items, populated sqlite-vec rows, and graph rows. Post-restart
+MCP `status`, `search`, and `ask(synthesize=false)` still worked.
 
 **v1 is single-tenant.** No caller IDs, no per-caller quotas, no
 asset-visibility scoping. Auth is one shared bearer token per host.
@@ -255,7 +246,7 @@ the full rationale behind the current milestone ordering.
   deployment, shared bearer-token auth, safe loopback defaults, and public
   discovery metadata. Promoted from P3 because the PMF thesis *is* shared
   index over MCP, and stdio-only silos contradict that.
-- **M6** **(shipped)** brings the Pi / homelab-host deploy path. The image
+- **M6** **(shipped)** brings the Raspberry Pi deploy path. The image
   includes M3 visual runtime deps and the Compose stack exposes MCP HTTP +
   worker without bundling Gemma 4 or Ollama.
 - **M7 client side** ships the optional SBT push path from MM-RAG. Full

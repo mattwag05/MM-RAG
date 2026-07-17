@@ -23,17 +23,17 @@ transport story over the reference-consumer integration.
 
 1. **The gap is long-form video and audio**, not images. Claude and
    Claude Code already ingest images and PDFs. Neither they nor the
-   local Qwen/Gemma models powering [agent], [agent], and Kit can take a
+   small local models powering self-hosted edge agents can take a
    YouTube video, podcast, lecture, or meeting recording as input — and
    even if they could, a 90-minute transcript plus frames would blow
    past the 32K context on `gemma4:e4b` running on the Pi.
 2. **Retrieval-first matters because edge agents already have LLMs.**
-   The [agent-cli] agents run small local models with tight contexts. The
+   Edge agents run small local models with tight contexts. The
    value MM-RAG adds is a deterministic, persistent, queryable index —
    *not* another inference layer competing with the model the caller
    already has loaded.
 3. **MCP is the plug-and-play surface.** Any MCP-capable caller (Claude
-   Code on Mac, [agent-cli] agents on tailnet, future harnesses) gets the
+   Code on a laptop, edge agents on a tailnet, future harnesses) gets the
    index for free. This is the leverage point the four-tool contract
    (`ingest`/`ask`/`search`/`status`) was designed for.
 
@@ -105,22 +105,18 @@ MCP transport means proving the wrong thing first.
   SigLIP but the visual grounding is worth the ~200 MB base model on
   the Pi.
 - **Deployment is a single shared tailnet service.** One MM-RAG
-  instance on homelab-host (or Pi), streamable-HTTP MCP transport, all edge
+  instance on a self-hosted server, streamable-HTTP MCP transport, all edge
   agents hit the same index. `MM-RAG-kb0` promotes to P1 and is a hard
   prerequisite for the "Pi deploy is actually useful" milestone. v1 is
   explicitly *single-tenant*: no caller IDs, no per-caller quotas, no
   asset-visibility scoping. Auth on the streamable-HTTP endpoint is a
-  shared token in env plus a Tailscale-only bind.
-  This is now live as of 2026-06-01: homelab-host hosts MM-RAG at
-  `http://203.0.113.10:8766/mcp`, with discovery at
-  `http://203.0.113.10:8766/.well-known/mcp-resource` and the shared
-  bearer token stored in `~/Projects/MM-RAG/.env` on homelab-host. Production
-  burn-in passed on 2026-06-02 UTC / 2026-06-01 EDT with real YouTube ingest,
-  search, evidence-first ask, restart, and persistence checks. The final
-  stabilization pass on 2026-06-02 06:59 EDT verified checkout `b8963f2`
-  (latest code-bearing deploy `83604a7`), the `MM-RAG-x15` active-stage status
-  fix, CPU-only Docker runtime packages, atomic migrations, and [agent]/[agent-runtime]
-  MCP connectivity to the same four-tool surface.
+  shared token in env plus a private-network-only bind.
+  This is now live as of 2026-06-01: a self-hosted server hosts MM-RAG behind
+  the shared bearer token, with `.env` on the server holding the token.
+  Production burn-in passed on 2026-06-02 UTC / 2026-06-01 EDT with real
+  YouTube ingest, search, evidence-first ask, restart, and persistence
+  checks, plus verified MCP client connectivity to the same four-tool
+  surface.
 - **`search` becomes a first-class evidence path.** `SearchOutput`
   enriches from thin hits to full `Evidence` objects (same shape as
   `ask` evidence: `summary`, `ocr_snippet`, `transcript_snippet`,
@@ -134,7 +130,7 @@ MCP transport means proving the wrong thing first.
 | M3  | `MM-RAG-eym`  | Visual pipeline (SigLIP + Tesseract + sqlite-vec)        | P1       | no change         |
 | M4  | `MM-RAG-4oz`  | Evidence packs (synth opt-in)                            | P1       | rescoped          |
 | M5  | `MM-RAG-kb0`  | Streamable-HTTP MCP transport (tailnet-hosted service)   | P1       | P3 → P1           |
-| M6  | `MM-RAG-xr0`  | Pi / homelab-host deploy (lighter footprint)                 | P2       | scope trimmed     |
+| M6  | `MM-RAG-xr0`  | Raspberry Pi deploy (lighter footprint)                 | P2       | scope trimmed     |
 | M7  | `MM-RAG-456`  | SBT reference integration                                | P3       | P2 → P3           |
 | post-v1 | (new)     | Bundled reasoning `[reasoning]` pyproject extra           | P3       | new               |
 
@@ -180,13 +176,13 @@ adding streamable-HTTP is a second transport binding, not a rewrite.
 Auth is a shared token in env, bind is Tailscale-only, and the endpoint
 advertises a `.well-known/mcp-resource` for client discovery.
 
-### M6 — Pi / homelab-host deploy (`MM-RAG-xr0`, lighter footprint)
+### M6 — Raspberry Pi deploy (`MM-RAG-xr0`, lighter footprint)
 
 Footprint with the rescoped M4: ffmpeg + faster-whisper (int8, ~150 MB)
 + Tesseract + SigLIP-base-patch16-256 (~200 MB) + sqlite-vec + SQLite.
 **No Ollama or Gemma 4 hard dependency** — that moves to the optional
 `[reasoning]` extra. Estimated runtime: ~1.5 GB RAM, ~1 GB disk for
-models. Well within homelab-host budget, comfortable on the Pi. Deploy
+models. Comfortable on a Raspberry Pi 5–class server. Deploy
 target is a single tailnet-hosted service, not per-agent sidecars, and
 this milestone blocks on M5 shipping the streamable-HTTP transport.
 

@@ -2550,8 +2550,8 @@ Shipped:
 
 Open milestones (see `bd ready` and `docs/pmf-rethink.md` for full rationale):
 - **M4** — evidence packs, synth opt-in (`ask` returns rich evidence by default; `answer` is `str | None`; Gemma/Ollama moves to an optional `[reasoning]` extra)
-- **M5** — streamable-HTTP MCP transport (tailnet-hosted shared service on homelab-host; all edge agents hit one index)
-- **M6** — Pi / homelab-host deploy (lighter footprint: no bundled Gemma; depends on M5 transport)
+- **M5** — streamable-HTTP MCP transport (tailnet-hosted shared service; all edge agents hit one index)
+- **M6** — Raspberry Pi deploy (lighter footprint: no bundled Gemma; depends on M5 transport)
 - **M7** — Social Bookmarks Triage REST integration (reference consumer, not core)
 ```
 

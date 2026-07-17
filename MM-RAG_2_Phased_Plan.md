@@ -7,7 +7,7 @@ retrieval-augmented generation system capable of indexing documents, audio, and 
 remaining fully edge-compatible on Apple Silicon. The architecture is inspired by three
 open-source projects from HKUDS — **LightRAG**, **RAG-Anything**, and **VideoRAG** — and
 maps their ideas onto an MLX-first runtime with a dual vector-backend design: embedded
-**sqlite-vec** for edge/offline use and **Qdrant** for homelab/server-scale deployments.
+**sqlite-vec** for edge/offline use and **Qdrant** for server-scale deployments.
 
 ---
 
@@ -17,7 +17,7 @@ maps their ideas onto an MLX-first runtime with a dual vector-backend design: em
 |---|---|---|
 | GRDB.swift | 7.10.0 | SQLite ORM for Swift (Android/Linux/Windows/SQLCipher support added) |
 | sqlite-vec | 0.1.6 (PyPI) / 0.1.7 (GitHub releases) | Embedded vector search SQLite extension |
-| Qdrant server | 1.18.1 | Optional homelab/server vector backend |
+| Qdrant server | 1.18.1 | Optional server vector backend |
 | qdrant-client (Python) | 1.18.0 | Python SDK for Qdrant |
 | mlx-swift | 0.21.x (May 2026) | Swift array framework for Apple Silicon LLM/VLM inference |
 | MLX-VLM | latest main | Vision-language model inference on MLX |
@@ -104,7 +104,7 @@ abstracts all vector operations so the rest of the pipeline is backend-agnostic.
      ┌───────┴────────┐
      ▼                ▼
 SqliteVecBackend  QdrantBackend
-(default, edge)   (homelab/server)
+(default, edge)   (server)
 ```
 
 ### SqliteVecBackend (default)
@@ -113,11 +113,11 @@ SqliteVecBackend  QdrantBackend
 - Stores all modality embeddings in `vec_items` virtual table alongside `nodes`/`edges`.
 - Suitable for corpora up to ~50–100 hours of video or thousands of documents.
 
-### QdrantBackend (optional, homelab/server mode)
-- Qdrant 1.18.1 server deployed via Docker Compose on the homelab.
+### QdrantBackend (optional, server mode)
+- Qdrant 1.18.1 server deployed via Docker Compose on a self-hosted server.
 - Python client: `qdrant-client==1.18.0`.
 - Supports named sparse + dense vector collections for hybrid dense/sparse retrieval.
-- Enables multi-device access (MacBook + Raspberry Pi nodes via Tailscale).
+- Enables multi-device access (laptop + edge nodes over a private network).
 - Switched via a single config key: `vector_backend: "qdrant"` + `qdrant_url`.
 - `qdrant-client` also supports an in-memory / local-file mode
   (`QdrantClient(path="path/to/db")`) for development without a running server.
@@ -126,7 +126,7 @@ SqliteVecBackend  QdrantBackend
 ```python
 # config.yaml
 vector_backend: "sqlite_vec"   # or "qdrant"
-qdrant_url: "http://homelab:6333"
+qdrant_url: "http://your-server:6333"
 qdrant_api_key: null  # local deployment
 ```
 
@@ -380,17 +380,17 @@ class QueryRequest:
 ## Phase 4 — Qdrant Backend + Dual-Backend Switching
 
 **Goal:** Implement `QdrantBackend` as a drop-in replacement for `SqliteVecBackend`,
-enabling homelab/server-scale deployments with multi-device access.
+enabling server-scale deployments with multi-device access.
 
 ### When to use Qdrant
 - Corpora larger than ~100 hours of video or tens of thousands of documents.
-- Multi-device access (MacBook + Raspberry Pi 5 via Tailscale homelab).
+- Multi-device access (laptop + edge devices over a private network).
 - Sparse + dense hybrid search (Qdrant's `sparse_vectors` support).
 - Need for advanced filtering on rich payload metadata at scale.
 
 ### Qdrant deployment
 ```yaml
-# docker-compose.yml (homelab)
+# docker-compose.yml (server)
 services:
   qdrant:
     image: qdrant/qdrant:v1.18.1
@@ -446,9 +446,9 @@ to the server by changing the URL.
 # edge mode (default)
 vector_backend: "sqlite_vec"
 
-# homelab server mode
+# server mode
 vector_backend: "qdrant"
-qdrant_url: "http://homelab-server:6333"
+qdrant_url: "http://your-server:6333"
 qdrant_api_key: null
 
 # local dev mode with Qdrant API (no server)
@@ -566,7 +566,7 @@ across all phases, and tune thresholds/models based on results.
 | 2 — Graph | LightRAG | Dual vector+graph index, entity/relation extraction, async graph build |
 | 2 — Video Graph | VideoRAG | Hierarchical scene nodes, `SIMILAR_SCENE` cross-video edges |
 | 3 — Retrieval | LightRAG + VideoRAG | `local/global/hybrid` modes, dual-channel video retrieval, modality-aware ranking |
-| 4 — Qdrant | Internal | Dual-backend abstraction, homelab scaling |
+| 4 — Qdrant | Internal | Dual-backend abstraction, server scaling |
 | 5 — MLX Runtime | Internal | Edge-first inference, M5 resource profiles |
 | 6 — Evaluation | LightRAG + VideoRAG | RAGAS metrics, long-video evaluation sets |
 

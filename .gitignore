@@ -58,3 +58,8 @@ node_modules/
 
 # Beads / Dolt files (added by bd init)
 .beads/proxieddb/
+
+# Local agent context (not published)
+CLAUDE.md
+AGENTS.md
+.beads/

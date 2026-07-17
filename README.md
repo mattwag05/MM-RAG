@@ -75,7 +75,7 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Lightweight SQLite graph tables (`nodes`, `edges`) over assets, content
   items, scenes, frames, segments, and topics.
 - ✅ Optional vector backend protocol with SQLite default and a Qdrant
-  selection hook for homelab experiments.
+  selection hook for self-hosted experiments.
 - ✅ MM-RAG-side Social Bookmarks Triage push client via `push_to_sbt=true`.
   The SBT receiver app was not available at the documented local path during
   the 2026-06-04 audit, so end-to-end SBT receiver validation is tracked
@@ -212,7 +212,7 @@ endpoint itself expects `Authorization: Bearer <MMRAG_MCP_TOKEN>`. The
 FastAPI REST server remains an admin/debug mirror, not the shared agent
 transport.
 
-### Pi / homelab-host Docker deploy
+### Raspberry Pi / self-hosted Docker deploy
 
 The Pi deployment is MCP-first: one shared tailnet service on port `8766`
 plus a worker draining the same SQLite volume. It includes the visual
@@ -235,12 +235,12 @@ curl -s http://127.0.0.1:8766/.well-known/mcp-resource | jq
 make docker-pi-down
 ```
 
-homelab-host/tailnet example:
+Private-network example:
 
 ```bash
 export MMRAG_MCP_TOKEN='shared-secret'
-export MMRAG_PUBLISH_HOST='100.x.y.z'            # homelab-host Tailscale IP
-export MMRAG_MCP_PUBLIC_URL='http://100.x.y.z:8766'
+export MMRAG_PUBLISH_HOST='<server-private-ip>'
+export MMRAG_MCP_PUBLIC_URL='http://<server-private-ip>:8766'
 make docker-pi-up
 ```
 
@@ -248,42 +248,31 @@ make docker-pi-up
 `0.0.0.0`. Do not publish the REST mirror in this stack; keep REST local for
 admin/debug workflows.
 
-Current homelab-host deployment, validated 2026-06-02 06:59 EDT / 2026-06-02 10:59 UTC:
+A deployed instance looks like:
 
-- Host: `homelab-host` (`203.0.113.10` on Tailscale)
-- Checkout: `~/Projects/MM-RAG`; last verified checkout is `b8963f2`
-- Latest code-bearing deploy: `83604a7` (`b8963f2` only closes Beads tracking
-  on top of the deployed code)
-- Discovery: `http://203.0.113.10:8766/.well-known/mcp-resource`
-- MCP endpoint: `http://203.0.113.10:8766/mcp`
-- Token: `MMRAG_MCP_TOKEN` in `~/Projects/MM-RAG/.env` on homelab-host
+- Host: a self-hosted server on your private network
+- Discovery: `http://<server-ip>:8766/.well-known/mcp-resource`
+- MCP endpoint: `http://<server-ip>:8766/mcp`
+- Token: `MMRAG_MCP_TOKEN` in the checkout's `.env` on the server
 - Services: `mmrag-init` applies migrations, `mmrag-mcp` exposes MCP only,
   and `mmrag-worker` runs ingest jobs from the shared `/data` volume
-- [agent]/[agent-runtime] client: configured as the `mmrag` Streamable HTTP MCP server,
-  with its bearer token read from local [agent-runtime] env as `MCP_MMRAG_API_KEY`
+- MCP clients connect over Streamable HTTP with the bearer token supplied
+  via environment
 
-The deployed service was verified with the public discovery document, an
-authenticated Streamable HTTP MCP `list_tools` probe, and a production burn-in
-against a real YouTube video. Burn-in asset
-`b30d0b6f-a449-4837-a9ad-a9f19b6fde38` produced 145 scenes, 143 transcript
-segments, 354 frames, 642 content items, populated sqlite-vec rows, and graph
-rows. After restarting `mmrag-mcp` and `mmrag-worker`, MCP `status`, `search`,
-and `ask(synthesize=false)` still worked. The live service now includes the
-`30225d7` active-stage status fix, the CPU-only Docker dependency fix, and the
-atomic migration runner fix.
-
-See [docs/homelab-host-burn-in.md](./docs/homelab-host-burn-in.md) for the exact
-burn-in evidence, persisted counts, resource shape, and stabilization notes.
+A production burn-in against a live endpoint was validated with a real
+YouTube ingest (145 scenes, 143 transcript segments, 354 frames, 642
+content items, populated sqlite-vec and graph rows), and MCP `status`,
+`search`, and `ask(synthesize=false)` all survived a service restart.
 
 Post-restart health check:
 
 ```bash
 export MMRAG_MCP_TOKEN='shared-secret'   # or export MCP_MMRAG_API_KEY
-make check-homelab-host-mcp
+make check-mcp
 ```
 
 The check verifies discovery metadata, the authenticated MCP tool surface,
-`status`, scoped `search`, evidence-first `ask`, and `agent-runtime mcp test mmrag`.
+`status`, scoped `search`, and evidence-first `ask`.
 Keep token values outside repo files and shell history.
 
 ---
@@ -432,7 +421,7 @@ independently testable; the project pauses for review between them.
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
-| **M6** | ✅ | Raspberry Pi / homelab-host deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
+| **M6** | ✅ | Raspberry Pi / self-hosted deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
 | **M7** | Partial | MM-RAG-side Social Bookmarks Triage REST client is implemented; SBT-side receiver/schema validation is pending |
 | **2.x foundation** | ✅ | Document ingestion via `content_items`, graph-aware `hybrid_graph` retrieval, and optional vector backend protocol |
 

@@ -43,7 +43,7 @@ Additional source-level findings:
 - `--sc-only` exists and is the relevant command path for any future MM-RAG comparison.
 - `build.rs` still links static media libraries even for the no-default-features build.
 - `build.sh` expects a substantial native build environment and can clone/build FFmpeg, Vulkan, Opus, dav1d, SVT-AV1, and related tooling.
-- That dependency shape is not suitable for MM-RAG core or the current homelab-host Docker image.
+- That dependency shape is not suitable for MM-RAG core or the current Pi Docker image.
 
 ## Recommendation
 

@@ -1,4 +1,4 @@
-# Pi / homelab-host tailnet deploy. Public agent transport is MCP HTTP on 8766.
+# Raspberry Pi / tailnet deploy. Public agent transport is MCP HTTP on 8766.
 # REST is intentionally not published here; keep it for local admin/debug.
 x-mmrag-pi-env: &mmrag-pi-env
   MMRAG_DATA_DIR: /data

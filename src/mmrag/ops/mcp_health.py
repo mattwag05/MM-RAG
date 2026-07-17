@@ -3,8 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
-import subprocess
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,7 +11,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 EXPECTED_TOOLS = ("ingest", "ask", "search", "status")
-DEFAULT_PUBLIC_URL = "http://203.0.113.10:8766"
+DEFAULT_PUBLIC_URL = "http://127.0.0.1:8766"
 DEFAULT_MCP_PATH = "/mcp"
 DEFAULT_JOB_ID = "da7c953e-a6db-45e9-bb1e-57237f144ebe"
 DEFAULT_ASSET_ID = "b30d0b6f-a449-4837-a9ad-a9f19b6fde38"
@@ -37,7 +35,6 @@ class HealthCheckConfig:
     ask_question: str = DEFAULT_ASK_QUESTION
     top_k: int = 3
     timeout_s: float = 15.0
-    hermes_server: str | None = "mmrag"
 
 
 @dataclass(frozen=True)
@@ -49,8 +46,6 @@ class HealthCheckSummary:
     job_status: str
     search_hits: int
     ask_evidence: int
-    hermes_checked: bool
-    hermes_ok: bool | None
 
 
 def build_urls(public_url: str, mcp_path: str) -> tuple[str, str]:
@@ -180,22 +175,6 @@ async def run_mcp_probe(config: HealthCheckConfig, mcp_url: str, token: str) -> 
     }
 
 
-def run_hermes_check(server_name: str, timeout_s: float) -> bool:
-    if shutil.which("agent-runtime") is None:
-        raise HealthCheckError("[agent-runtime] CLI not found on PATH.")
-    result = subprocess.run(
-        ["agent-runtime", "mcp", "test", server_name],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout_s,
-    )
-    if result.returncode != 0:
-        output = (result.stdout + result.stderr).strip()
-        raise HealthCheckError(f"[agent-runtime] MCP check failed for {server_name!r}: {output}")
-    return True
-
-
 async def run_health_check(config: HealthCheckConfig) -> HealthCheckSummary:
     discovery_url, mcp_url = build_urls(config.public_url, config.mcp_path)
     token_env, token = select_token(config.token_envs)
@@ -205,11 +184,6 @@ async def run_health_check(config: HealthCheckConfig) -> HealthCheckSummary:
 
     probe = await run_mcp_probe(config, mcp_url, token)
 
-    hermes_checked = config.hermes_server is not None
-    hermes_ok: bool | None = None
-    if config.hermes_server:
-        hermes_ok = run_hermes_check(config.hermes_server, config.timeout_s)
-
     return HealthCheckSummary(
         discovery_url=discovery_url,
         mcp_url=mcp_url,
@@ -218,8 +192,6 @@ async def run_health_check(config: HealthCheckConfig) -> HealthCheckSummary:
         job_status=probe["job_status"],
         search_hits=probe["search_hits"],
         ask_evidence=probe["ask_evidence"],
-        hermes_checked=hermes_checked,
-        hermes_ok=hermes_ok,
     )
 
 
