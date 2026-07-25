@@ -24,19 +24,19 @@ classifiers = [
 dependencies = [
   "fastapi>=0.115",
   "httpx>=0.27",
-  "starlette>=1.0.1",
+  "starlette>=1.3.1",
   "uvicorn[standard]>=0.32",
-  "mcp>=1.2",
+  "mcp>=1.28.1",
   "pydantic>=2.9",
-  "pydantic-settings>=2.6",
+  "pydantic-settings>=2.14.2",
   "structlog>=24.4",
   "typer>=0.13",
-  "yt-dlp>=2024.11.04",
+  "yt-dlp>=2026.6.9",
   # M2 — speech pipeline
   "scenedetect[opencv]>=0.6.4,<0.7",  # BSD-3
   "faster-whisper>=1.0.3,<2.0",       # MIT
   "sqlite-vec>=0.1.0",                # Apache-2
-  "pypdf>=5.0",                       # BSD-3, PDF text extraction
+  "pypdf>=6.13.3",                    # BSD-3, PDF text extraction
 ]
 
 [project.optional-dependencies]
@@ -47,8 +47,8 @@ dev = [
 ]
 m3-visual = [
   "open-clip-torch>=2.24",
-  "torch>=2.2",
-  "Pillow>=10.0",
+  "torch>=2.13",
+  "Pillow>=12.3",
   "numpy>=1.26",
   "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
 ]
