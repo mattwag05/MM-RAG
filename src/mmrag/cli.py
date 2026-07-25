@@ -148,6 +148,84 @@ def check_mcp_health(
     typer.echo(f"ask_evidence: {summary.ask_evidence}")
 
 
+@app.command("eval")
+def eval_cmd(
+    dataset: str = typer.Option("eval/smoke.jsonl", help="Path to a JSONL eval dataset."),
+    top_k: int = typer.Option(10, min=1, max=100, help="Hits requested per question."),
+    mode: str = typer.Option("hybrid", help="Search mode: hybrid|vector|fts|hybrid_graph."),
+    ingest: bool = typer.Option(
+        False, help="Ingest dataset media sources first (slow; local runs only)."
+    ),
+    sweep: str = typer.Option(
+        None,
+        help="Sweep one lever, e.g. 'top_k=3,5,10' or 'mode=hybrid,hybrid_graph,fts'.",
+    ),
+    json_out: str = typer.Option(None, "--json", help="Also write the report(s) as JSON."),
+    fail_under_recall: float = typer.Option(
+        None, help="Exit 1 if recall@k falls below this (CI gate)."
+    ),
+) -> None:
+    """Run the deterministic retrieval eval against the configured store."""
+    import json
+    from pathlib import Path
+
+    from mmrag.ops.evaluate import (
+        EvalConfig,
+        format_report,
+        format_sweep_row,
+        run_eval_sync,
+    )
+
+    settings = get_settings()
+    settings.ensure_dirs()
+
+    base = EvalConfig(dataset=Path(dataset), top_k=top_k, mode=mode, ingest=ingest)
+    if sweep is None:
+        configs = [base]
+        sweep_key = None
+    else:
+        # ponytail: only top_k/mode are sweepable — extend when graph knobs land in Settings.
+        key, _, raw_values = sweep.partition("=")
+        sweep_key = key.strip()
+        values = [v.strip() for v in raw_values.split(",") if v.strip()]
+        if sweep_key not in ("top_k", "mode") or not values:
+            raise typer.BadParameter("--sweep expects 'top_k=3,5,10' or 'mode=hybrid,fts,...'")
+        configs = []
+        for i, value in enumerate(values):
+            override = {sweep_key: int(value) if sweep_key == "top_k" else value}
+            # Ingest at most once, on the first run.
+            configs.append(
+                EvalConfig(dataset=base.dataset, ingest=ingest and i == 0, **{
+                    "top_k": base.top_k,
+                    "mode": base.mode,
+                    **override,
+                })
+            )
+
+    reports = []
+    failed = False
+    for config in configs:
+        report = run_eval_sync(config)
+        reports.append(report)
+        if sweep_key is None:
+            typer.echo(format_report(report))
+        else:
+            typer.echo(format_sweep_row(report, sweep_key))
+        if fail_under_recall is not None and report.recall_at_k < fail_under_recall:
+            failed = True
+
+    if json_out is not None:
+        payload = [r.to_dict() for r in reports]
+        Path(json_out).write_text(
+            json.dumps(payload[0] if len(payload) == 1 else payload, indent=2)
+        )
+        typer.echo(f"json report: {json_out}")
+
+    if failed:
+        typer.echo(f"recall below threshold {fail_under_recall}", err=True)
+        raise typer.Exit(1)
+
+
 @app.command("version")
 def version() -> None:
     """Print the mmrag version."""

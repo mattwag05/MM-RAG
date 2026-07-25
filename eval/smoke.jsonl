@@ -1,0 +1,3 @@
+{"id": "smoke-q1", "question": "What does the speaker say about multimodal retrieval?", "media": [{"source": "tests/fixtures/speech.mp4", "kind": "file"}], "gold": [{"source": "speech.mp4"}], "tags": ["smoke", "transcript"]}
+{"id": "smoke-q2", "question": "retrieval augmented generation", "media": [{"source": "tests/fixtures/speech.mp4", "kind": "file"}], "gold": [{"source": "speech.mp4"}], "tags": ["smoke", "transcript"]}
+{"id": "smoke-q3", "question": "Which clip mentions a test fixture?", "media": [{"source": "tests/fixtures/speech.mp4", "kind": "file"}], "gold": [{"source": "speech.mp4"}], "tags": ["smoke", "transcript"]}

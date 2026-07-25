@@ -23,7 +23,7 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual
 
-.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-mcp worker docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-mcp worker eval eval-full docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
 
 help:
 	@echo "Targets:"
@@ -39,6 +39,8 @@ help:
 	@echo "  make serve-mcp-http # FastMCP Streamable HTTP on :8766"
 	@echo "  make check-mcp   # validate the deployed MCP service"
 	@echo "  make worker      # drain the job queue"
+	@echo "  make eval        # deterministic retrieval eval (smoke dataset)"
+	@echo "  make eval-full   # ingest public-URL eval media, then full eval (slow)"
 	@echo "  make clean       # remove venv + caches"
 	@echo "  make docker-build"
 	@echo "  make docker-up"
@@ -82,6 +84,12 @@ check-mcp:
 
 worker:
 	$(UV_RUN) mmrag worker
+
+eval:
+	$(UV_RUN) mmrag eval --dataset eval/smoke.jsonl --ingest
+
+eval-full:
+	$(UV_RUN) mmrag eval --dataset eval/full.jsonl --ingest
 
 clean:
 	rm -rf .venv.nosync .pytest_cache .ruff_cache
