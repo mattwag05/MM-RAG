@@ -13,10 +13,11 @@ biased toward retrieval over brute-force frame inference — so the "smart"
 multimodal model only sees the few seconds that actually matter.
 
 > **Status: v0.1.0 (M6 Pi deploy path shipped).**
-> Stages 1–7 wired end-to-end: fetch → normalize → scene_detect → transcribe
-> → frame_sample → ocr → embed, with deterministic scene summaries at stage 8.
+> Stages 1–8 wired end-to-end: fetch → normalize → scene_detect → transcribe
+> → frame_sample → ocr → caption → embed, with deterministic scene summaries
+> at stage 9.
 > `ask` is evidence-first by default, with
-> request-time synthesis opt-in. Streamable HTTP MCP is the shared tailnet
+> request-time synthesis opt-in. Streamable HTTP MCP is the shared-network
 > transport. See the [roadmap](#roadmap).
 
 ---
@@ -56,7 +57,7 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Crash-resumable pipeline — `jobs.stage` reports the active stage, while
   `pipeline_state_json.last_completed_stage` drives safe resume/retry
 - ✅ FastMCP stdio server with all 4 tools registered
-- ✅ FastMCP Streamable HTTP server with shared bearer-token auth for tailnet use
+- ✅ FastMCP Streamable HTTP server with shared bearer-token auth for private-network use
 - ✅ FastAPI REST mirror on `:8765` with the same surface
 - ✅ Background worker (`mmrag worker`) that drains the job queue
 - ✅ SQLite WAL store with migration runner
@@ -80,7 +81,10 @@ which clip in your library is the one where the onboarding modal appears.
   The SBT receiver app was not available at the documented local path during
   the 2026-06-04 audit, so end-to-end SBT receiver validation is tracked
   separately.
-- ✅ Pi/tailnet Docker Compose path for MCP HTTP + worker, with no bundled
+- ✅ Scenes with neither speech nor on-screen text get a Florence-2 caption at
+  ingest, indexed into FTS and surfaced as evidence (`MMRAG_CAPTION_ENABLED=false`
+  to skip the 469 MB download)
+- ✅ Pi / self-hosted Docker Compose path for MCP HTTP + worker, with no bundled
   Ollama/Gemma dependency. The MCP service enqueues ingests and the worker
   owns pipeline execution in this profile.
 
@@ -192,7 +196,7 @@ Add to your client's MCP config:
 Then in the chat: *"Ingest <some YouTube URL>, then ask what happens at the
 30-second mark."*
 
-### Shared tailnet MCP server
+### Shared private-network MCP server
 
 `serve-mcp-http` exposes the same four MCP tools over FastMCP's
 Streamable HTTP transport. Loopback binds are allowed without a token for
@@ -202,7 +206,7 @@ local development; any non-loopback bind requires `MMRAG_MCP_TOKEN`.
 export MMRAG_MCP_HOST=0.0.0.0
 export MMRAG_MCP_PORT=8766
 export MMRAG_MCP_PATH=/mcp
-export MMRAG_MCP_PUBLIC_URL=http://mmrag.tailnet:8766
+export MMRAG_MCP_PUBLIC_URL=http://mmrag.internal:8766
 export MMRAG_MCP_TOKEN='shared-secret'
 make serve-mcp-http
 ```
@@ -212,9 +216,14 @@ endpoint itself expects `Authorization: Bearer <MMRAG_MCP_TOKEN>`. The
 FastAPI REST server remains an admin/debug mirror, not the shared agent
 transport.
 
+`mmrag` takes no position on how that private network is built — a VPN
+mesh (Tailscale, WireGuard, Nebula), a LAN, or an SSH tunnel all work.
+The bearer token is the access control; the network is your perimeter.
+Do not expose the MCP port to the public internet.
+
 ### Raspberry Pi / self-hosted Docker deploy
 
-The Pi deployment is MCP-first: one shared tailnet service on port `8766`
+The Pi deployment is MCP-first: one shared private-network service on port `8766`
 plus a worker draining the same SQLite volume. It includes the visual
 retrieval stack (`m3-visual`, ffmpeg, Tesseract) but does not bundle Ollama,
 Gemma weights, or the optional `reasoning` extra. The Pi Compose file sets
@@ -291,17 +300,18 @@ Keep token values outside repo files and shell history.
                 │ GET  /asset/{id} /jobs/{id}   │   │ (mmrag worker)  │
                 └───────────────┬───────────────┘   └────────▲────────┘
                                 │                            │
-                ┌───────────────▼────────────────────────────┴───────┐
-                │ Pipeline (async, idempotent, phase-1 / phase-2)    │
+                ┌───────────────▼────────────────────────────┴────────┐
+                │ Pipeline (async, idempotent, phase-1 / phase-2)     │
                 │ 1. fetch        (yt-dlp / local)                    │
                 │ 2. normalize    (ffmpeg → mp4 mezzanine + 16k mono) │
                 │ 3. scene_detect (PySceneDetect)         [M2]        │
                 │ 4. transcribe   (onnx-asr Parakeet TDT) [M2]        │
                 │ 5. frame_sample (scene midpoint+1fps)   [M3]        │
-                │ 6. ocr          (Tesseract)             [M3]        │
-                │ 7. embed        (SigLIP image+text)     [M3]        │
-                │ 8. summarize    (deterministic scene summaries)      │
-                └────────────────┬───────────────────────────────────┘
+                │ 6. ocr          (Tesseract PSM 3)       [M3]        │
+                │ 7. caption      (Florence-2 captions)   [M3]        │
+                │ 8. embed        (SigLIP image+text)     [M3]        │
+                │ 9. summarize    (deterministic scene summaries)     │
+                └────────────────┬────────────────────────────────────┘
                                  │
                         ┌────────▼─────────┐
                         │ SQLite WAL       │
@@ -350,6 +360,11 @@ public domain. No GPL/AGPL anywhere in the runtime tree.
 | `typer`         | MIT            | CLI                             |
 | `yt-dlp`        | Unlicense (PD) | URL fetch                       |
 | `uvicorn`       | BSD-3          | ASGI server                     |
+| `starlette`     | BSD-3          | ASGI toolkit                    |
+| `onnx-asr`      | MIT            | speech-to-text runtime          |
+| `scenedetect`   | BSD-3          | scene boundary detection        |
+| `sqlite-vec`    | Apache-2       | in-DB vector index              |
+| `pypdf`         | BSD-3          | PDF text extraction             |
 | `setuptools`    | MIT            | build backend                   |
 
 Three non-Python pieces are required and **not bundled**:
@@ -367,6 +382,13 @@ Three non-Python pieces are required and **not bundled**:
    Gemma terms (not MIT). `mmrag` does not bundle, redistribute, or
    fine-tune them — it merely makes HTTP calls to a local Ollama process
    you already trust.
+
+**Model weights are downloaded, not bundled.** The first `ingest` pulls
+Parakeet TDT 0.6b v3 (~640 MB, CC-BY-4.0), SigLIP-base-patch16-256
+(~780 MB, Apache-2), Silero VAD (~2 MB, MIT), and — unless
+`MMRAG_CAPTION_ENABLED=false` — Florence-2-base (~469 MB, MIT) into the
+shared HuggingFace cache. All four permit commercial use; none are
+redistributed by this repo. Budget ~1.9 GB of disk on first run.
 
 If you're allergic to those terms, the `ModelProvider` abstraction lets you
 plug in any other Ollama-served VLM (e.g. `qwen2-vl`, `minicpm-v`) by
@@ -400,7 +422,7 @@ pluggable slot for a dedicated video VLM (LLaVA-Video, VideoLLaMA, future
 people actually ingest interactively is short-form social content (Reels,
 Shorts, TikToks). The 30-second default is enough for the bread-and-butter
 case to feel synchronous; long videos correctly fall back to polling without
-changing the agent's tool-call shape. Pi/tailnet Compose disables inline
+changing the agent's tool-call shape. Pi / self-hosted Compose disables inline
 execution, so `wait_ms` waits for the separate worker instead of doing heavy
 work in the MCP server process.
 
@@ -420,8 +442,8 @@ independently testable; the project pauses for review between them.
 | **M2** | ✅ | Scene detection (PySceneDetect) + transcription (onnx-asr + Parakeet TDT int8, Silero VAD) + FTS5 transcript search |
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
-| **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
-| **M6** | ✅ | Raspberry Pi / self-hosted deploy path: MCP HTTP + worker Compose stack, token-required tailnet bind, no bundled Ollama/Gemma |
+| **M5** | ✅ | Streamable-HTTP MCP transport for a shared self-hosted MM-RAG service, with shared bearer token and discovery metadata |
+| **M6** | ✅ | Raspberry Pi / self-hosted deploy path: MCP HTTP + worker Compose stack, token-required non-loopback bind, no bundled Ollama/Gemma |
 | **M7** | Partial | MM-RAG-side Social Bookmarks Triage REST client is implemented; SBT-side receiver/schema validation is pending |
 | **2.x foundation** | ✅ | Document ingestion via `content_items`, graph-aware `hybrid_graph` retrieval, and optional vector backend protocol |
 
@@ -440,7 +462,7 @@ MM-RAG/
 ├── LICENSE                    # MIT
 ├── Dockerfile
 ├── docker-compose.yml         # Mac REST dev stack
-├── docker-compose.pi.yml      # Pi/tailnet MCP + worker stack
+├── docker-compose.pi.yml      # Pi / self-hosted MCP + worker stack
 ├── docs/
 │   └── architecture.md        # in-repo design (slim copy of the planning spec)
 ├── tests/
@@ -464,7 +486,10 @@ MM-RAG/
     │       ├── 0002_m2_speech.sql
     │       ├── 0003_m3_visual.sql
     │       ├── 0004_vec_asset_filters.sql
-    │       └── 0005_content_items.sql
+    │       ├── 0005_content_items.sql
+    │       ├── 0006_job_runner_leases.sql
+    │       ├── 0007_documents_graph.sql
+    │       └── 0008_frame_captions.sql
     ├── models/
     │   ├── asset.py
     │   ├── job.py             # JobStatus, Stage enums
@@ -484,7 +509,9 @@ MM-RAG/
     │       ├── transcribe.py      # M2 — onnx-asr Parakeet TDT int8 + Silero VAD
     │       ├── frame_sample.py    # M3 — scene midpoints + stride sampling
     │       ├── ocr.py             # M3 — Tesseract PSM 3
+    │       ├── caption.py         # M3 — Florence-2 captions for silent scenes
     │       ├── embed.py           # M3 — SigLIP-base-patch16-256 (768-d)
+    │       ├── document.py        # text extraction into content_items
     │       └── summarize.py       # deterministic per-scene summaries
     └── providers/
         ├── base.py            # ModelProvider ABC
