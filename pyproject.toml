@@ -50,7 +50,9 @@ m3-visual = [
   "torch>=2.13",
   "Pillow>=12.3",
   "numpy>=1.26",
-  "transformers>=4.40",  # required by open_clip HFTokenizer for SigLIP models
+  # >=5.8 ships the `minicpmv4_6` model type; `florence2` landed in 4.57.
+  # Also required by open_clip HFTokenizer for SigLIP models.
+  "transformers>=5.8",
 ]
 reasoning = [
 ]

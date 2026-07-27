@@ -23,7 +23,7 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual
 
-.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-mcp worker eval eval-full docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-mcp worker eval eval-full bench-vlm bench-vlm-corpus bench-vlm-html docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
 
 help:
 	@echo "Targets:"
@@ -90,6 +90,16 @@ eval:
 
 eval-full:
 	$(UV_RUN) mmrag eval --dataset eval/full.jsonl --ingest
+
+# VLM captioning benchmark (MM-RAG-jyq). Corpus first, then the sweep.
+bench-vlm-corpus:
+	$(UV_RUN) python scripts/vlm_bench.py --build-corpus eval/vlm-frames.jsonl
+
+bench-vlm:
+	$(UV_RUN) python scripts/vlm_bench.py --all --out /tmp/mmrag-vlm-bench
+
+bench-vlm-html:
+	$(UV_RUN) python scripts/vlm_bench.py --dump-html /tmp/mmrag-vlm-bench/captions.html --out /tmp/mmrag-vlm-bench
 
 clean:
 	rm -rf .venv.nosync .pytest_cache .ruff_cache
