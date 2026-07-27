@@ -21,6 +21,7 @@ class Stage(StrEnum):
     TRANSCRIBE = "transcribe"
     FRAME_SAMPLE = "frame_sample"
     OCR = "ocr"
+    CAPTION = "caption"
     EMBED = "embed"
     SUMMARIZE = "summarize"
     DONE = "done"
@@ -35,6 +36,11 @@ M1_STAGE_ORDER: tuple[Stage, ...] = (
     Stage.TRANSCRIBE,
     Stage.FRAME_SAMPLE,
     Stage.OCR,
+    # After OCR (needs ocr_text to know which scenes have no evidence) and
+    # before SUMMARIZE (which uses the caption instead of its empty-scene
+    # constant). Resume keys off the stage *name*, so inserting here is safe
+    # for in-flight jobs: one that had completed OCR simply runs CAPTION next.
+    Stage.CAPTION,
     Stage.EMBED,
     Stage.SUMMARIZE,
 )

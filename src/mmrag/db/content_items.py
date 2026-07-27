@@ -63,7 +63,7 @@ def _segment_items(conn, asset_id: str) -> list[ContentItem]:
 def _frame_items(conn, asset_id: str) -> list[ContentItem]:
     rows = conn.execute(
         """
-        SELECT id, scene_id, frame_idx, t_s, path, ocr_text, width, height
+        SELECT id, scene_id, frame_idx, t_s, path, ocr_text, caption, width, height
           FROM frames
          WHERE asset_id = ?
          ORDER BY scene_id, frame_idx
@@ -82,6 +82,9 @@ def _frame_items(conn, asset_id: str) -> list[ContentItem]:
             start_s=float(r["t_s"]),
             end_s=float(r["t_s"]),
             text=r["ocr_text"],
+            # _fts_text already unions text+caption, so this reaches
+            # fts_content_items with no further wiring.
+            caption=r["caption"],
             file_path=r["path"],
             metadata={"width": r["width"], "height": r["height"]},
         )

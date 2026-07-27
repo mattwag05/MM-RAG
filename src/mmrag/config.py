@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     ingest_inline: bool = True
     worker_concurrency: int = 2
     graph_enabled: bool = True
+    # Ingest-time VLM captioning of silent scenes. Off-switch for edge
+    # deployments that cannot spare the 469 MB Florence-2 download.
+    caption_enabled: bool = True
+    # ASR model id resolved by onnx-asr. Parakeet TDT v3 is ~670 MB at int8;
+    # edge deployments that cannot spare it can point this at a smaller
+    # onnx-asr model such as "whisper-base". The quantization knob travels
+    # with it because not every model ships an int8 variant; set it to the
+    # empty string (MMRAG_TRANSCRIBE_QUANTIZATION="") to select fp32.
+    transcribe_model: str = "nemo-parakeet-tdt-0.6b-v3"
+    transcribe_quantization: str | None = "int8"
     query_vector_enabled: bool = True
     vector_backend: str = "sqlite"
     qdrant_url: str | None = None

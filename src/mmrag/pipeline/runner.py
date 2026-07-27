@@ -11,6 +11,7 @@ from mmrag.db.content_items import replace_content_items_for_asset, rewrite_cont
 from mmrag.logging import get_logger
 from mmrag.models.content_item import ContentItem
 from mmrag.models.job import M1_STAGE_ORDER, JobStatus, Stage
+from mmrag.pipeline.stages.caption import caption
 from mmrag.pipeline.stages.document import DocumentIngestError, ingest_document
 from mmrag.pipeline.stages.embed import embed
 from mmrag.pipeline.stages.fetch import FetchError, fetch
@@ -318,12 +319,19 @@ def _rewrite_fts_scenes(*, asset_id: str) -> None:
             scene_ids,
         )
         for scene_id in scene_ids:
+            # Captions are indexed alongside OCR: both are ingest-time text
+            # describing what is visible in the scene.
             frame_rows = conn.execute(
-                "SELECT ocr_text FROM frames WHERE scene_id = ? "
-                "AND ocr_text IS NOT NULL AND ocr_text <> ''",
+                "SELECT ocr_text, caption FROM frames WHERE scene_id = ? "
+                "AND (COALESCE(ocr_text,'') <> '' OR COALESCE(caption,'') <> '')",
                 (scene_id,),
             ).fetchall()
-            text = " ".join(r["ocr_text"] for r in frame_rows).strip()
+            text = " ".join(
+                part
+                for r in frame_rows
+                for part in (r["ocr_text"], r["caption"])
+                if part and part.strip()
+            ).strip()
             if not text:
                 continue
             conn.execute(
@@ -443,6 +451,34 @@ def _update_frame_ocr(*, asset_id: str, frames: list[dict]) -> None:
                 """,
                 (
                     frame.get("ocr_text"),
+                    asset_id,
+                    int(frame["frame_idx"]),
+                    asset_id,
+                    int(frame["scene_idx"]),
+                ),
+            )
+
+
+def _update_frame_captions(*, asset_id: str, frames: list[dict]) -> None:
+    """Persist captions for the frames the caption stage selected.
+
+    Only writes rows that actually carry a caption — most frames are not
+    captioned, and blanking them would undo a previous run's work on resume.
+    """
+    captioned = [f for f in frames if str(f.get("caption") or "").strip()]
+    if not captioned:
+        return
+    with connect() as conn, transaction(conn):
+        for frame in captioned:
+            conn.execute(
+                """
+                UPDATE frames SET caption = ?
+                 WHERE asset_id = ? AND frame_idx = ?
+                   AND scene_id = (SELECT id FROM scenes
+                                    WHERE asset_id = ? AND scene_idx = ?)
+                """,
+                (
+                    frame.get("caption"),
                     asset_id,
                     int(frame["frame_idx"]),
                     asset_id,
@@ -641,6 +677,14 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
         if state.get("is_document"):
             return {"frames": state.get("frames", [])}
         return await ocr(frames=state.get("frames", []))
+    if stage is Stage.CAPTION:
+        if state.get("is_document"):
+            return {"frames": state.get("frames", [])}
+        return await caption(
+            scenes=state.get("scenes", []),
+            segments=state.get("segments", []),
+            frames=state.get("frames", []),
+        )
     if stage is Stage.EMBED:
         if state.get("is_document"):
             return {
@@ -752,6 +796,13 @@ async def run_pipeline(job_id: str) -> None:
                 rewrite_content_items_for_asset(state["asset_id"])
             elif stage is Stage.OCR and state.get("asset_id") and not state.get("is_document"):
                 _update_frame_ocr(
+                    asset_id=state["asset_id"],
+                    frames=state.get("frames", []),
+                )
+                _rewrite_fts_scenes(asset_id=state["asset_id"])
+                rewrite_content_items_for_asset(state["asset_id"])
+            elif stage is Stage.CAPTION and state.get("asset_id") and not state.get("is_document"):
+                _update_frame_captions(
                     asset_id=state["asset_id"],
                     frames=state.get("frames", []),
                 )

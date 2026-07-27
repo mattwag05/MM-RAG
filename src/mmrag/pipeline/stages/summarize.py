@@ -8,6 +8,9 @@ small runtime footprint.
 
 _MAX_TRANSCRIPT_CHARS = 220
 _MAX_OCR_CHARS = 160
+# Florence-2 <DETAILED_CAPTION> averages ~66 tokens; this keeps a whole
+# caption rather than clipping mid-sentence.
+_MAX_CAPTION_CHARS = 400
 
 
 def _clean_text(text: object) -> str:
@@ -47,11 +50,24 @@ def _summarize_scene(*, scene: dict, segments: list[dict], frames: list[dict]) -
         )
     )
 
+    caption_text = _clean_text(
+        " ".join(
+            _clean_text(frame.get("caption"))
+            for frame in frames
+            if _overlaps_scene(frame, scene) and _clean_text(frame.get("caption"))
+        )
+    )
+
     parts = []
     if transcript_text:
         parts.append(f"Spoken: {_truncate(transcript_text, _MAX_TRANSCRIPT_CHARS)}")
     if ocr_text:
         parts.append(f"Visible text: {_truncate(ocr_text, _MAX_OCR_CHARS)}")
+    # Only reached for scenes with neither — the caption stage captions
+    # exactly that population, so this is the branch that used to be the
+    # dead-end constant.
+    if not parts and caption_text:
+        parts.append(f"Scene shows: {_truncate(caption_text, _MAX_CAPTION_CHARS)}")
     if not parts:
         parts.append("No transcript or OCR text detected.")
     return " ".join(parts)

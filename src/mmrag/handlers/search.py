@@ -1,11 +1,17 @@
 """MCP `search` tool handler.
 
-Hybrid retrieval fuses four streams via reciprocal rank fusion (k=60):
+Hybrid retrieval fuses five streams via reciprocal rank fusion (k=60):
 
   1. FTS5 BM25 over transcript_segments (via fts_transcript)
   2. FTS5 BM25 over aggregated scene OCR (via fts_scenes)
   3. SigLIP text-tower cosine over vec_frames
   4. SigLIP text-tower cosine over vec_transcript
+  5. FTS5 BM25 over the content_items projection (via fts_content_items)
+
+Every stream goes through fusion. Nothing is ranked on its raw stream
+score, because those scores are not comparable: cosine runs 0.0–1.0 while
+negated BM25 runs ~1–20, so any list concatenated onto fused results
+(~0.016–0.05) and re-sorted wins the whole result set by scale alone.
 
 Each stream emits up to 20 candidates keyed on ``scenes.id``. ``hybrid``
 mode sums the RRF contributions. ``vector`` mode skips BM25 and returns
@@ -41,7 +47,9 @@ _FTS_BINARY_OPS = {"AND", "OR"}
 
 @dataclass
 class _StreamHit:
-    scene_id: int
+    # None only for content_items rows that carry no scene (document/page
+    # items). Every other stream filters those out before constructing a hit.
+    scene_id: int | None
     score: float  # cosine for vec streams, -bm25 for fts streams
     snippet: str | None
     # For FTS hits: segment-level timestamps (higher precision).
@@ -52,6 +60,17 @@ class _StreamHit:
     # Source tag — used by FTS dedup to prefer fts_transcript over fts_scenes
     # when both match the same scene_id (fts_transcript has segment timestamps).
     source: str = field(default="")
+    # Set only by the content_items stream; scene-less items fuse under their
+    # own key and supply their own asset_id/timestamps.
+    content_item_id: str | None = field(default=None)
+    asset_id: str | None = field(default=None)
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """Fusion identity. Scene-bearing hits from any stream share a key."""
+        if self.scene_id is not None:
+            return ("scene", str(self.scene_id))
+        return ("item", str(self.content_item_id))
 
 
 async def _encode_query_text(query: str) -> list[float]:
@@ -286,6 +305,33 @@ def _content_items_hits(
     ]
 
 
+def _content_items_stream(
+    query: str, asset_id: str | None, time_range: tuple[float, float] | None
+) -> list[_StreamHit]:
+    """content_items as a fusion stream (hybrid mode).
+
+    Reuses ``_content_items_hits``' SQL and re-keys it for RRF. In hybrid mode
+    these hits must enter fusion rather than being concatenated onto fused
+    results: raw ``-bm25`` runs ~1–20 while an RRF score runs ~0.016–0.05, so
+    concatenating and re-sorting put every content_items hit above every fused
+    hit regardless of relevance.
+    """
+    return [
+        _StreamHit(
+            scene_id=int(hit.scene_id) if hit.scene_id is not None else None,
+            score=hit.score,
+            snippet=hit.snippet,
+            start_s=hit.start_s,
+            end_s=hit.end_s,
+            frame_id=int(hit.frame_id) if hit.frame_id is not None else None,
+            source="content_items",
+            content_item_id=hit.content_item_id,
+            asset_id=hit.asset_id,
+        )
+        for hit in _content_items_hits(query, asset_id, time_range, _PER_STREAM_TOP)
+    ]
+
+
 def _scene_timing(scene_ids: list[int]) -> dict[int, tuple[str, float, float]]:
     """Return {scene_id: (asset_id, start_s, end_s)} for the given scene IDs."""
     if not scene_ids:
@@ -301,36 +347,80 @@ def _scene_timing(scene_ids: list[int]) -> dict[int, tuple[str, float, float]]:
 
 def _rrf_fuse(
     streams: list[list[_StreamHit]], top_k: int
-) -> list[tuple[int, float, str | None, str, int | None]]:
-    """Return [(scene_id, fused_score, best_snippet, best_source, frame_id), ...] top_k."""
-    fused: dict[int, float] = {}
-    snippets: dict[int, tuple[float, str | None]] = {}
-    sources: dict[int, tuple[float, str, int | None]] = {}
+) -> list[tuple[float, _StreamHit, int | None]]:
+    """Return [(fused_score, representative_hit, frame_id), ...] top_k, sorted.
+
+    The representative hit supplies both the snippet and the ``source`` label,
+    chosen together: the highest-contribution hit that actually *has* a snippet,
+    falling back to the highest-contribution hit overall when none does. They
+    must agree because ``handlers/ask.py`` files the snippet under
+    ``ocr_snippet`` or ``transcript_snippet`` purely by ``source_stream`` — a
+    hit labelled ``vec_frames`` carrying an FTS-transcript snippet gets that
+    transcript text reported as on-screen text.
+
+    Everything is compared by RRF contribution, never by raw stream score:
+    cosine (0.0–1.0) and negated BM25 (~1–20) are not on the same scale.
+
+    Contributions are **weighted by within-stream normalised score**, and a
+    key scores **once per stream** (its best rank). Textbook RRF does neither,
+    and both matter here:
+
+    - Rank-only fusion discards how *well* a hit matched. BM25 already ranked
+      a verbatim match at 10.31 against 5.39 for a hit sharing only "the" and
+      "does", then RRF flattened both to 1/61. Normalising by the stream's own
+      top score puts that discrimination back without reintroducing a
+      cross-stream scale (every stream's best hit is worth 1.0 of its rank
+      contribution).
+    - MM-RAG's streams are redundant — content_items is a *projection* of
+      scenes/segments/frames — so one scene can match several rows of one
+      stream, and un-deduped RRF counted each. That rewarded assets with more
+      indexed rows rather than better matches.
+
+    Measured on eval/smoke.jsonl (gold ranks / MRR): rank-only 0.259,
+    +dedup 0.444, +dedup+score-weight **1.000**. A stopword list was also
+    tried (+dedup+stopwords 0.778) and is deliberately NOT used: score
+    weighting subsumes it, and a hardcoded English stoplist would be wrong
+    for a plugin that indexes 25 languages.
+    """
+    fused: dict[tuple[str, str], float] = {}
+    best: dict[tuple[str, str], tuple[float, _StreamHit]] = {}
+    best_snippet: dict[tuple[str, str], tuple[float, _StreamHit]] = {}
+    best_frame: dict[tuple[str, str], tuple[float, int]] = {}
     for hits in streams:
+        top_score = max((hit.score for hit in hits), default=0.0)
+        scored: set[tuple[str, str]] = set()
         for rank, hit in enumerate(hits):
             contribution = 1.0 / (_RRF_K + rank + 1)
-            fused[hit.scene_id] = fused.get(hit.scene_id, 0.0) + contribution
-            cur_source = sources.get(hit.scene_id)
-            if cur_source is None or contribution > cur_source[0]:
-                sources[hit.scene_id] = (contribution, hit.source, hit.frame_id)
-            cur = snippets.get(hit.scene_id)
-            # Snippet is picked by "highest raw score among contributing streams."
-            # BM25 scores (negated, so positive) and cosine scores (0.0–1.0) live
-            # on different scales; the comparison is apples-to-oranges but is a
-            # reasonable heuristic: snippets are advisory output, not the ranking.
-            if hit.snippet and (cur is None or hit.score > cur[0]):
-                snippets[hit.scene_id] = (hit.score, hit.snippet)
+            if top_score > 0:
+                # Negative cosine means "not similar" — clamp rather than
+                # letting abs() turn it into a strong match.
+                contribution *= max(hit.score, 0.0) / top_score
+            key = hit.key
+            # Best rank per stream only. Later duplicates may still supply a
+            # snippet or frame_id below, they just do not score again.
+            if key not in scored:
+                scored.add(key)
+                fused[key] = fused.get(key, 0.0) + contribution
+            cur = best.get(key)
+            if cur is None or contribution > cur[0]:
+                best[key] = (contribution, hit)
+            if hit.snippet:
+                cur_snip = best_snippet.get(key)
+                if cur_snip is None or contribution > cur_snip[0]:
+                    best_snippet[key] = (contribution, hit)
+            if hit.frame_id is not None:
+                cur_frame = best_frame.get(key)
+                if cur_frame is None or contribution > cur_frame[0]:
+                    best_frame[key] = (contribution, hit.frame_id)
     ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-    return [
-        (
-            sid,
-            score,
-            snippets.get(sid, (0.0, None))[1],
-            sources.get(sid, (0.0, "hybrid", None))[1],
-            sources.get(sid, (0.0, "hybrid", None))[2],
-        )
-        for sid, score in ordered
-    ]
+    out: list[tuple[float, _StreamHit, int | None]] = []
+    for key, score in ordered:
+        rep = best_snippet.get(key) or best.get(key)
+        if rep is None:  # pragma: no cover — keys only exist because a hit made them
+            continue
+        frame = best_frame.get(key)
+        out.append((score, rep[1], frame[1] if frame else None))
+    return out
 
 
 async def handle_search(inp: SearchInput) -> SearchOutput:
@@ -354,9 +444,14 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
     elif base_mode in ("vector", "hybrid"):
         log.info("query_vector.disabled", mode=inp.mode)
 
+    if base_mode == "hybrid":
+        # Fifth stream. In fts mode content_items stays a concatenated list
+        # below — there both sides are raw BM25, so the scales already agree.
+        streams.append(_content_items_stream(inp.query, inp.asset_id, inp.time_range))
+
     content_hits = (
         _content_items_hits(inp.query, inp.asset_id, inp.time_range, inp.top_k)
-        if base_mode in ("fts", "hybrid")
+        if base_mode == "fts"
         else []
     )
 
@@ -434,25 +529,35 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         ]
         return SearchOutput(hits=hits)
 
-    # hybrid: RRF fusion over all streams
+    # hybrid: RRF fusion over all streams, content_items included. Already
+    # sorted by fused score — no re-sort, because there is now only one scale.
     fused = _rrf_fuse(streams, inp.top_k)
-    scene_meta = _scene_timing([sid for sid, _, _, _, _ in fused])
-    hits = [
-        SearchHit(
-            asset_id=scene_meta[sid][0],
-            scene_id=str(sid),
-            frame_id=str(frame_id) if frame_id is not None else None,
-            start_s=scene_meta[sid][1],
-            end_s=scene_meta[sid][2],
-            score=score,
-            snippet=snippet or "[visual match]",
-            source_stream=source,
+    scene_meta = _scene_timing([h.scene_id for _, h, _ in fused if h.scene_id is not None])
+    hits = []
+    for score, hit, frame_id in fused:
+        if hit.scene_id is not None:
+            if hit.scene_id not in scene_meta:
+                continue
+            asset_id, start_s, end_s = scene_meta[hit.scene_id]
+        elif hit.asset_id is not None:
+            # Scene-less content_items row: it carries its own timing.
+            asset_id, start_s, end_s = hit.asset_id, hit.start_s or 0.0, hit.end_s or 0.0
+        else:
+            continue
+        hits.append(
+            SearchHit(
+                asset_id=asset_id,
+                content_item_id=hit.content_item_id,
+                scene_id=str(hit.scene_id) if hit.scene_id is not None else None,
+                frame_id=str(frame_id) if frame_id is not None else None,
+                start_s=start_s,
+                end_s=end_s,
+                score=score,
+                snippet=hit.snippet or "[visual match]",
+                source_stream=hit.source,
+            )
         )
-        for sid, score, snippet, source, frame_id in fused
-        if sid in scene_meta
-    ]
-    hits = [*hits, *content_hits]
-    hits = sorted(hits, key=lambda h: h.score, reverse=True)[: inp.top_k]
+    hits = hits[: inp.top_k]
     if inp.mode == "hybrid_graph":
         hits = _with_graph_expansion(hits, inp)
     return SearchOutput(hits=hits)

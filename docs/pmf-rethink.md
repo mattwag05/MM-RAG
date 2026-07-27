@@ -45,7 +45,7 @@ M3/M4/M5/M6 issue bodies.
 
 ### What's aligned (keep)
 
-- Retrieval-first pipeline with deterministic indexing (faster-whisper,
+- Retrieval-first pipeline with deterministic indexing (onnx-asr,
   PySceneDetect, FTS5). **Shipped.**
 - Four-tool MCP surface (`ingest`/`ask`/`search`/`status`) with a shared
   handler layer used by both MCP and REST. **Shipped.**
@@ -178,10 +178,14 @@ advertises a `.well-known/mcp-resource` for client discovery.
 
 ### M6 — Raspberry Pi deploy (`MM-RAG-xr0`, lighter footprint)
 
-Footprint with the rescoped M4: ffmpeg + faster-whisper (int8, ~150 MB)
-+ Tesseract + SigLIP-base-patch16-256 (~200 MB) + sqlite-vec + SQLite.
+Footprint with the rescoped M4: ffmpeg + onnx-asr Parakeet TDT 0.6b v3
+(int8, ~640 MB + 2 MB Silero VAD) + Tesseract +
+SigLIP-base-patch16-256 (~200 MB) + sqlite-vec + SQLite. The ASR swap
+(MM-RAG-k48) traded ~490 MB of disk for 12-14% → ~6.3% WER and 25
+languages; a Pi deploy that cannot spare it can set
+`MMRAG_TRANSCRIBE_MODEL` to a smaller onnx-asr model.
 **No Ollama or Gemma 4 hard dependency** — that moves to the optional
-`[reasoning]` extra. Estimated runtime: ~1.5 GB RAM, ~1 GB disk for
+`[reasoning]` extra. Estimated runtime: ~1.5 GB RAM, ~1.5 GB disk for
 models. Comfortable on a Raspberry Pi 5–class server. Deploy
 target is a single tailnet-hosted service, not per-agent sidecars, and
 this milestone blocks on M5 shipping the streamable-HTTP transport.

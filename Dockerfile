@@ -5,7 +5,7 @@ FROM python:3.13-slim AS base
 # - ffmpeg: normalize/video/audio extraction
 # - tesseract-ocr: OCR stage
 # - libgl1/libglib2.0-0: OpenCV wheels imported by PySceneDetect on slim Debian
-# - libgomp1: OpenMP runtime used by ML wheels such as ctranslate2
+# - libgomp1: OpenMP runtime used by ML wheels such as onnxruntime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -32,7 +32,11 @@ RUN uv venv /app/.venv \
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-ENV MMRAG_DATA_DIR=/data \
+# HF_HOME inside the volume: model weights (Parakeet ~640 MB, SigLIP
+# ~780 MB, Florence-2 ~469 MB) default to /root/.cache/huggingface, which
+# is not persisted — every container recreate would re-download ~1.9 GB.
+ENV HF_HOME=/data/hf-cache \
+    MMRAG_DATA_DIR=/data \
     MMRAG_API_HOST=0.0.0.0 \
     MMRAG_API_PORT=8765 \
     MMRAG_MCP_HOST=0.0.0.0 \
