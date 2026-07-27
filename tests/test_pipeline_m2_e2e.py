@@ -38,7 +38,11 @@ async def test_ingest_speech_mp4_persists_transcript_segments(
 ) -> None:
     """Full pipeline on a clip containing real speech should populate
     transcript_segments, and the text should be BM25-searchable via FTS."""
-    result = await handle_ingest(IngestInput(source=str(speech_mp4), wait_ms=180000))
+    # 600 s, not 180: this file sorts before test_pipeline_transcribe.py, so
+    # on a cold cache it is the test that pays the first-run model downloads
+    # (~640 MB Parakeet + 780 MB SigLIP + 469 MB Florence-2). Too low and it
+    # fails as a confusing "expected done, got running".
+    result = await handle_ingest(IngestInput(source=str(speech_mp4), wait_ms=600000))
     assert result.status == "done", f"expected done, got {result.status}: {result.error}"
     asset_id = result.asset_id
     assert asset_id is not None

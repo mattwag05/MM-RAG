@@ -34,7 +34,7 @@ which clip in your library is the one where the onboarding modal appears.
   No Qdrant, no Milvus, no Postgres. `sqlite-vec` lives inside the same DB.
 - **Retrieval first, reasoning second** — `mmrag` doesn't shove a 10-minute
   video into a multimodal model. It splits the video into scenes, transcribes
-  the audio with `faster-whisper`, OCRs sampled frames, and embeds everything
+  the audio with `onnx-asr`, OCRs sampled frames, and embeds everything
   into a hybrid (vector + BM25) index. `ask` returns the top-k retrieved
   evidence by default; only `synthesize=true` hands that evidence to Gemma 4
   for a final answer.
@@ -60,7 +60,7 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ FastAPI REST mirror on `:8765` with the same surface
 - ✅ Background worker (`mmrag worker`) that drains the job queue
 - ✅ SQLite WAL store with migration runner
-- ✅ Subprocess wrapper with `SIGTERM → SIGKILL` escalation for hung ffmpeg/whisper
+- ✅ Subprocess wrapper with `SIGTERM → SIGKILL` escalation for hung ffmpeg/ASR
 - ✅ Pluggable `ModelProvider` slot for the eventual VLM swap
 - ✅ Pydantic schema contract tests for every MCP tool's input/output
 - ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
@@ -296,7 +296,7 @@ Keep token values outside repo files and shell history.
                 │ 1. fetch        (yt-dlp / local)                    │
                 │ 2. normalize    (ffmpeg → mp4 mezzanine + 16k mono) │
                 │ 3. scene_detect (PySceneDetect)         [M2]        │
-                │ 4. transcribe   (faster-whisper int8)   [M2]        │
+                │ 4. transcribe   (onnx-asr Parakeet TDT) [M2]        │
                 │ 5. frame_sample (scene midpoint+1fps)   [M3]        │
                 │ 6. ocr          (Tesseract)             [M3]        │
                 │ 7. embed        (SigLIP image+text)     [M3]        │
@@ -417,7 +417,7 @@ independently testable; the project pauses for review between them.
 | Milestone | Status | Scope |
 |-----------|:------:|-------|
 | **M1** | ✅ | Walking skeleton: project layout, `uv` + tested/deployed Python 3.13 default, FastMCP + 4 tool stubs, FastAPI mirror, SQLite + migrations, fetch + normalize stages, contract + pipeline tests |
-| **M2** | ✅ | Scene detection (PySceneDetect) + transcription (faster-whisper int8 + word timestamps) + FTS5 transcript search |
+| **M2** | ✅ | Scene detection (PySceneDetect) + transcription (onnx-asr + Parakeet TDT int8, Silero VAD) + FTS5 transcript search |
 | **M3** | ✅ | Frame sampling + Tesseract OCR + SigLIP-base-patch16-256 image+text embeddings (768-d) + sqlite-vec hybrid RRF retrieval (FTS transcript / FTS scenes / vec frames / vec transcript). Renamed `shots` → `scenes`. |
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared tailnet-hosted MM-RAG service, with shared bearer token and discovery metadata |
@@ -481,9 +481,9 @@ MM-RAG/
     │       ├── fetch.py       # M1 — yt-dlp / local
     │       ├── normalize.py   # M1 — ffmpeg mezzanine + 16k mono wav
     │       ├── scene_detect.py    # M2 — PySceneDetect ContentDetector
-    │       ├── transcribe.py      # M2 — faster-whisper int8 + word timestamps
+    │       ├── transcribe.py      # M2 — onnx-asr Parakeet TDT int8 + Silero VAD
     │       ├── frame_sample.py    # M3 — scene midpoints + stride sampling
-    │       ├── ocr.py             # M3 — Tesseract PSM 6
+    │       ├── ocr.py             # M3 — Tesseract PSM 3
     │       ├── embed.py           # M3 — SigLIP-base-patch16-256 (768-d)
     │       └── summarize.py       # deterministic per-scene summaries
     └── providers/

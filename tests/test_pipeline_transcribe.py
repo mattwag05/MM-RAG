@@ -1,4 +1,4 @@
-"""Stage 4: transcribe — faster-whisper → transcript segments."""
+"""Stage 4: transcribe — onnx-asr → transcript segments."""
 
 from __future__ import annotations
 
@@ -73,20 +73,22 @@ async def test_transcribe_with_no_scenes_leaves_scene_idx_none(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_transcribe_real_faster_whisper_on_speech_fixture(speech_wav: Path) -> None:
-    """Integration test: real faster-whisper model on a TTS-generated clip.
+async def test_transcribe_real_asr_on_speech_fixture(speech_wav: Path) -> None:
+    """Integration test: real onnx-asr model on a TTS-generated clip.
 
     Skipped automatically when no TTS tool is available to produce the
-    fixture (see conftest.speech_wav fixture). Downloads the ~39 MB
-    `tiny.en` model on first run; subsequent runs use the HF cache.
+    fixture (see conftest.speech_wav fixture). Downloads ~640 MB of
+    Parakeet TDT int8 weights plus the 2 MB Silero VAD on first run;
+    subsequent runs read them from the shared HF hub cache, alongside
+    SigLIP and Florence-2.
     """
     result = await transcribe(audio_path=str(speech_wav), scenes=[])
     segments = result["segments"]
     assert len(segments) >= 1
     joined = " ".join(s["text"].lower() for s in segments)
     # The TTS phrase is "multimodal retrieval augmented generation test
-    # fixture". Whisper tiny.en will mangle some of this, so we only assert
-    # on robust tokens likely to survive.
+    # fixture". Parakeet returns it verbatim, but stay fuzzy so a TTS voice
+    # change on another machine doesn't turn this into a brittle string check.
     assert "test" in joined or "fixture" in joined or "generation" in joined
     # Every segment should carry a positive-length interval.
     for seg in segments:

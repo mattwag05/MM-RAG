@@ -26,7 +26,7 @@ hallucination.
 
 Its 29% loss on "real text" frames is acceptable *for this pipeline*
 specifically: what it drops is mostly burned-in subtitles, which duplicate
-what faster-whisper already transcribed. What it keeps is on-screen code,
+what the ASR stage already transcribed. What it keeps is on-screen code,
 IDE chrome, and slides — content that is never spoken and that OCR is the
 only source for.
 

@@ -32,7 +32,7 @@ a config change, not a rewrite.
 | REST mirror | FastAPI | MIT |
 | URL fetch | yt-dlp | Unlicense/PD |
 | Media transform | ffmpeg (system binary, **not bundled**) | LGPL |
-| ASR | faster-whisper *(M2)* | MIT |
+| ASR | onnx-asr *(M2)* | MIT (Parakeet TDT 0.6b v3 weights: CC-BY-4.0) |
 | Scene detect | PySceneDetect *(M2)* | BSD-3 |
 | Embeddings | open_clip SigLIP | MIT |
 | OCR | Tesseract CLI (system binary, **not bundled**) | Apache-2 |
