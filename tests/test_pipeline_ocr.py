@@ -54,7 +54,11 @@ async def test_ocr_on_empty_frames_returns_empty_list():
 
 async def test_ocr_survives_single_frame_failure(tmp_path):
     good = tmp_path / "good.jpg"
-    _make_text_frame(good, "OK")
+    # Not a 2-character string: PSM 3 needs a little page structure to
+    # segment, and drops an isolated token like "OK". Anything from roughly
+    # "Chapter 1" upward reads fine. This frame only has to be readable —
+    # what is under test is that a sibling frame's failure does not kill it.
+    _make_text_frame(good, "Chapter 1")
     frames = [
         {
             "scene_idx": 0,
@@ -134,5 +138,8 @@ async def test_ocr_timeout_uses_kill_capable_subprocess_wrapper(monkeypatch, tmp
     )
 
     assert patch["frames"][0]["ocr_text"] == ""
-    assert seen["argv"] == ["tesseract", str(p), "stdout", "--psm", "6"]
+    # PSM is pinned to 3, not 6, on purpose: PSM 6 asserts a uniform text
+    # block exists and so hallucinates text out of video texture. Do not
+    # "fix" this back to 6 — see the measurement table in stages/ocr.py.
+    assert seen["argv"] == ["tesseract", str(p), "stdout", "--psm", "3"]
     assert seen["timeout_s"] == 10.0

@@ -47,7 +47,11 @@ def _run_speech_to_text(audio_path: str) -> list[dict]:
         audio_path,
         language="en",
         beam_size=1,
-        vad_filter=False,
+        # VAD on: with beam_size=1 on tiny.en, whisper hallucinates fluent
+        # text over music and silence. That junk is indexed into
+        # fts_transcript and served as real evidence, and it masks the
+        # silent-scene population the caption stage is scoped to.
+        vad_filter=True,
     )
     return [{"start": float(s.start), "end": float(s.end), "text": s.text} for s in segs]
 

@@ -65,6 +65,10 @@ class Evidence(BaseModel):
     summary: str | None = None
     ocr_snippet: str | None = None
     transcript_snippet: str | None = None
+    # VLM caption written at ingest for scenes with no speech and no
+    # on-screen text. Without it those scenes carry no describable content
+    # at all — the frame JPEG cannot be returned through this model.
+    caption: str | None = None
 
 
 class AskOutput(BaseModel):

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     ingest_inline: bool = True
     worker_concurrency: int = 2
     graph_enabled: bool = True
+    # Ingest-time VLM captioning of silent scenes. Off-switch for edge
+    # deployments that cannot spare the 469 MB Florence-2 download.
+    caption_enabled: bool = True
     query_vector_enabled: bool = True
     vector_backend: str = "sqlite"
     qdrant_url: str | None = None

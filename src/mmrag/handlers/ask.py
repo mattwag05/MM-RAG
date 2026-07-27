@@ -26,13 +26,39 @@ def _scene_summaries(scene_ids: list[str | None]) -> dict[str, str]:
     }
 
 
-def _hit_to_evidence(hit, summaries: dict[str, str]) -> Evidence:
+def _scene_captions(scene_ids: list[str | None]) -> dict[str, str]:
+    """Ingest-time VLM captions per scene, joined across the scene's frames.
+
+    Only silent scenes with no on-screen text are captioned, so this is
+    empty for most hits.
+    """
+    ids = sorted({int(scene_id) for scene_id in scene_ids if scene_id is not None})
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT scene_id, caption FROM frames "  # noqa: S608 — placeholders only
+            f"WHERE scene_id IN ({placeholders}) AND COALESCE(caption,'') <> '' "
+            f"ORDER BY frame_idx",
+            ids,
+        ).fetchall()
+    out: dict[str, str] = {}
+    for r in rows:
+        key = str(r["scene_id"])
+        text = str(r["caption"]).strip()
+        out[key] = f"{out[key]} {text}".strip() if key in out else text
+    return out
+
+
+def _hit_to_evidence(hit, summaries: dict[str, str], captions: dict[str, str]) -> Evidence:
     snippet = hit.snippet if hit.snippet != "[visual match]" else None
     transcript_snippet = (
         snippet if hit.source_stream in {"fts_transcript", "vec_transcript"} else None
     )
     ocr_snippet = snippet if hit.source_stream in {"fts_scenes", "vec_frames"} else None
     return Evidence(
+        caption=captions.get(hit.scene_id),
         asset_id=hit.asset_id,
         content_item_id=hit.content_item_id,
         scene_id=hit.scene_id,
@@ -111,9 +137,12 @@ async def handle_ask(inp: AskInput) -> AskOutput:
             time_range=inp.time_range,
         )
     )
-    summaries = _scene_summaries([hit.scene_id for hit in search_out.hits])
+    scene_ids = [hit.scene_id for hit in search_out.hits]
+    summaries = _scene_summaries(scene_ids)
+    captions = _scene_captions(scene_ids)
     evidence = _filter_time_range(
-        [_hit_to_evidence(hit, summaries) for hit in search_out.hits], inp.time_range
+        [_hit_to_evidence(hit, summaries, captions) for hit in search_out.hits],
+        inp.time_range,
     )
     if not inp.synthesize:
         return AskOutput(answer=None, evidence=evidence, confidence="low")
