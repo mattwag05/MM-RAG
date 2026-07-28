@@ -8,7 +8,7 @@ from mmrag.db.connection import connect, transaction
 from mmrag.logging import get_logger
 from mmrag.models.job import JobStatus
 from mmrag.models.mcp_io import IngestInput, IngestOutput
-from mmrag.pipeline.runner import run_pipeline
+from mmrag.pipeline.spawn import run_job
 
 log = get_logger("handler.ingest")
 
@@ -21,15 +21,14 @@ def _create_job(inp: IngestInput) -> str:
         conn.execute(
             """
             INSERT INTO jobs (
-                id, source, mode, push_to_sbt,
+                id, source, push_to_sbt,
                 status, stage, progress, wait_ms, pipeline_state_json
             )
-            VALUES (?, ?, ?, ?, 'queued', 'queued', 0.0, ?, '{}')
+            VALUES (?, ?, ?, 'queued', 'queued', 0.0, ?, '{}')
             """,
             (
                 job_id,
                 inp.source,
-                inp.mode,
                 int(inp.push_to_sbt),
                 inp.wait_ms,
             ),
@@ -93,6 +92,10 @@ async def handle_ingest(inp: IngestInput) -> IngestOutput:
     Mac/local dev defaults to inline execution so short ingests can complete in
     one request. Pi/tailnet deployments set MMRAG_INGEST_INLINE=false so the MCP
     service only enqueues while the worker process owns heavy pipeline stages.
+
+    "Inline" means this request owns the job, not that the pipeline runs in this
+    process: it runs in a child that exits, because pipeline models are never
+    reclaimed in-process (see mmrag.pipeline.spawn).
     """
     job_id = _create_job(inp)
     ingest_inline = get_settings().ingest_inline
@@ -105,7 +108,7 @@ async def handle_ingest(inp: IngestInput) -> IngestOutput:
     )
 
     if ingest_inline:
-        pipeline_task = asyncio.create_task(run_pipeline(job_id))
+        pipeline_task = asyncio.create_task(run_job(job_id))
         try:
             # wait_ms == 0 means "fire and forget, return immediately."
             if inp.wait_ms > 0:

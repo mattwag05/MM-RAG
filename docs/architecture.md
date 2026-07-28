@@ -106,6 +106,20 @@ In local/default profiles the handler may run the pipeline inline. Pi/tailnet
 Compose sets `MMRAG_INGEST_INLINE=false`, so the MCP service only enqueues and
 polls while `mmrag-worker` owns pipeline execution.
 
+"Inline" means the request owns the job, not that the pipeline runs in the
+request's process. Both hosts — the MCP server and the worker — run every job
+as `mmrag run-job <job_id>` in a child process that exits when the job ends
+(`pipeline/spawn.py`). Pipeline models are not reclaimable in-process: across
+8 VLMs, `del` + `gc.collect()` + `torch.mps.empty_cache()` left 1.5-23 GB
+resident (`docs/vlm-selection.md`, Table 3). Measured on `speech.mp4`, the
+host process goes 36 MB → 36 MB across an ingest and never imports torch,
+against 36 MB → 1250 MB when the same pipeline ran in-process. The job id is
+the entire hand-off, since source, stage, resume state, and lease all live in
+SQLite; `MMRAG_DATA_DIR` is passed to the child explicitly so an in-process
+config override cannot be silently dropped. The cost is per-job process
+startup and one model set per concurrent job, so `MMRAG_WORKER_CONCURRENCY`
+now bounds peak memory directly.
+
 ## Job lifecycle
 
 ```
@@ -127,7 +141,7 @@ completed, and re-ingesting the same source under a different URL is a no-op
 assets(id, content_hash UNIQUE, source_url, source_kind, title,
        duration_s, fps, width, height,
        mezzanine_path, audio_path, ingested_at, metadata_json)
-jobs(id, asset_id?, source, mode, push_to_sbt, status, stage, progress,
+jobs(id, asset_id?, source, push_to_sbt, status, stage, progress,
      retries, error_kind, error_message, wait_ms,
      pipeline_state_json, created_at, updated_at)
 ```
@@ -141,7 +155,7 @@ and `edges`. Each lives in its own numbered SQL file under
 ## MCP tool surface
 
 ```
-ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
+ingest(source, wait_ms=30000, push_to_sbt=False)
 ask(question, asset_id=None, time_range=None, top_k=5,
     synthesize=False, model="gemma4:e4b")
 search(query, asset_id=None, time_range=None, top_k=10,

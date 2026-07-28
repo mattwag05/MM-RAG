@@ -21,7 +21,7 @@ async def test_ingest_timeout_does_not_cancel_pipeline_task(
     finished = asyncio.Event()
     cancelled = False
 
-    async def fake_run_pipeline(_job_id: str) -> None:
+    async def fake_run_job(_job_id: str) -> None:
         nonlocal cancelled
         started.set()
         try:
@@ -32,7 +32,7 @@ async def test_ingest_timeout_does_not_cancel_pipeline_task(
         finally:
             finished.set()
 
-    monkeypatch.setattr(ingest_mod, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(ingest_mod, "run_job", fake_run_job)
 
     out = await handle_ingest(IngestInput(source="tests/fixtures/sample.mp4", wait_ms=1))
 
@@ -53,11 +53,11 @@ async def test_ingest_queue_only_does_not_run_pipeline_inline(
     reset_settings_for_tests(Settings(data_dir=isolated_data_dir, ingest_inline=False))
     called = False
 
-    async def fake_run_pipeline(_job_id: str) -> None:
+    async def fake_run_job(_job_id: str) -> None:
         nonlocal called
         called = True
 
-    monkeypatch.setattr(ingest_mod, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(ingest_mod, "run_job", fake_run_job)
 
     out = await handle_ingest(IngestInput(source="tests/fixtures/sample.mp4", wait_ms=0))
 

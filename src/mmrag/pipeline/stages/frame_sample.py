@@ -89,7 +89,6 @@ async def frame_sample(
     scenes: list[dict],
     assets_dir: Path,
     content_hash: str,
-    mode: str,
 ) -> dict:
     if mezzanine_path is None or not scenes:
         return {"frames": []}

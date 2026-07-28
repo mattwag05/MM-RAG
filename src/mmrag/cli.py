@@ -85,6 +85,22 @@ def worker() -> None:
     asyncio.run(run_worker_until_signalled())
 
 
+@app.command("run-job")
+def run_job(job_id: str = typer.Argument(..., help="Job id from the jobs table.")) -> None:
+    """Run one queued job in this process, then exit.
+
+    Normally spawned by the worker or the MCP server so pipeline models die
+    with the child; also the supported way to drive one job by hand.
+    """
+    import asyncio
+
+    from mmrag.pipeline.spawn import run_job_in_process
+
+    settings = get_settings()
+    settings.ensure_dirs()
+    asyncio.run(run_job_in_process(job_id))
+
+
 @app.command("check-mcp-health")
 def check_mcp_health(
     public_url: str = typer.Option(

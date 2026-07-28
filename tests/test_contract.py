@@ -22,7 +22,6 @@ from mmrag.models.mcp_io import (
 class TestIngest:
     def test_minimal_input(self) -> None:
         inp = IngestInput(source="tests/fixtures/sample.mp4")
-        assert inp.mode == "standard"
         assert inp.wait_ms == 30000
         assert inp.push_to_sbt is False
 

@@ -7,7 +7,8 @@ from collections.abc import Callable
 from mmrag.config import get_settings
 from mmrag.db.connection import connect
 from mmrag.logging import get_logger
-from mmrag.pipeline.runner import JOB_LEASE_STALE_SECONDS, run_pipeline
+from mmrag.pipeline.runner import JOB_LEASE_STALE_SECONDS
+from mmrag.pipeline.spawn import run_job
 
 log = get_logger("worker")
 
@@ -43,7 +44,10 @@ def _claim_pending(limit: int = 16) -> list[str]:
 
 async def _run_one(job_id: str) -> None:
     try:
-        await run_pipeline(job_id)
+        # ponytail: one child process per job, so concurrent jobs each pay for
+        # their own model copies. Fine at the default concurrency of 2; cap
+        # MMRAG_WORKER_CONCURRENCY at 1 on a memory-tight host.
+        await run_job(job_id)
     except Exception:  # noqa: BLE001 — runner already records errors
         log.exception("worker.job_error", job_id=job_id)
 

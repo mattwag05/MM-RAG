@@ -43,7 +43,6 @@ async def test_frame_sample_midpoint_per_scene(tmp_path):
         scenes=scenes,
         assets_dir=tmp_path,
         content_hash="testhash",
-        mode="standard",
     )
     frames = patch["frames"]
     assert len(frames) == 3
@@ -72,7 +71,6 @@ async def test_frame_sample_long_scene_strides_every_2s(tmp_path):
         scenes=scenes,
         assets_dir=tmp_path,
         content_hash="longhash",
-        mode="standard",
     )
     frames = patch["frames"]
     # 1 midpoint (7.5) + strides starting at start_s+1.0 with 2s step up to
@@ -100,7 +98,6 @@ async def test_frame_sample_dedupes_midpoint_stride_collision(tmp_path):
         scenes=scenes,
         assets_dir=tmp_path,
         content_hash="14hash",
-        mode="standard",
     )
     frames = patch["frames"]
     t_values = [f["t_s"] for f in frames]
@@ -117,7 +114,6 @@ async def test_frame_sample_none_mezzanine_returns_empty(tmp_path):
         scenes=[{"scene_idx": 0, "start_s": 0.0, "end_s": 1.0}],
         assets_dir=tmp_path,
         content_hash="h",
-        mode="standard",
     )
     assert patch == {"frames": []}
 
@@ -130,7 +126,6 @@ async def test_frame_sample_empty_scenes_returns_empty(tmp_path):
         scenes=[],
         assets_dir=tmp_path,
         content_hash="h",
-        mode="standard",
     )
     assert patch == {"frames": []}
 
@@ -141,6 +136,5 @@ async def test_frame_sample_missing_mezzanine_file_returns_empty(tmp_path):
         scenes=[{"scene_idx": 0, "start_s": 0.0, "end_s": 1.0}],
         assets_dir=tmp_path,
         content_hash="h",
-        mode="standard",
     )
     assert patch == {"frames": []}

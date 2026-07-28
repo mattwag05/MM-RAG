@@ -13,7 +13,6 @@ class IngestInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source: str = Field(..., description="URL or local file path")
-    mode: Literal["standard", "shortform"] = "standard"
     wait_ms: int = Field(30000, ge=0, le=600000)
     push_to_sbt: bool = False
 

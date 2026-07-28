@@ -60,6 +60,10 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ FastMCP Streamable HTTP server with shared bearer-token auth for private-network use
 - ✅ FastAPI REST mirror on `:8765` with the same surface
 - ✅ Background worker (`mmrag worker`) that drains the job queue
+- ✅ Every job runs in a child process (`mmrag run-job <id>`) that exits with the
+  job, so pipeline models leave no residue in the long-lived MCP/worker
+  processes — measured 36 MB → 36 MB across an ingest, vs 36 MB → 1250 MB
+  in-process (torch does not give memory back on `del`)
 - ✅ SQLite WAL store with migration runner
 - ✅ Subprocess wrapper with `SIGTERM → SIGKILL` escalation for hung ffmpeg/ASR
 - ✅ Pluggable `ModelProvider` slot for the eventual VLM swap
@@ -155,7 +159,7 @@ first run via `ffmpeg lavfi` sources into `tests/fixtures/` and gitignored.
 ## MCP tool surface
 
 ```
-ingest(source, mode="standard"|"shortform", wait_ms=30000, push_to_sbt=False)
+ingest(source, wait_ms=30000, push_to_sbt=False)
   → { status, asset_id, job_id, summary, error }
 
 ask(question, asset_id=None, time_range=None, top_k=5,
@@ -471,7 +475,7 @@ MM-RAG/
 │   ├── test_pipeline_fetch.py
 │   └── test_pipeline_normalize.py
 └── src/mmrag/
-    ├── cli.py                 # typer: serve-mcp | serve-mcp-http | serve-api | worker | init-db
+    ├── cli.py                 # typer: serve-mcp | serve-mcp-http | serve-api | worker | run-job | init-db
     ├── config.py              # pydantic-settings (data_dir, ollama_url, ...)
     ├── logging.py             # structlog setup
     ├── mcp_server.py          # FastMCP stdio + Streamable HTTP app factory

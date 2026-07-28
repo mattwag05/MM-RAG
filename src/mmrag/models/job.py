@@ -52,7 +52,6 @@ class Job(BaseModel):
     id: str
     asset_id: str | None = None
     source: str
-    mode: str = "standard"
     push_to_sbt: bool = False
     status: JobStatus = JobStatus.QUEUED
     stage: Stage = Stage.QUEUED

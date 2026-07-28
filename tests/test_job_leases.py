@@ -31,11 +31,11 @@ def _insert_job(
         conn.execute(
             """
             INSERT INTO jobs (
-                id, source, mode, push_to_sbt, status, stage, progress,
+                id, source, push_to_sbt, status, stage, progress,
                 wait_ms, pipeline_state_json, runner_id, runner_heartbeat_at,
                 error_kind, error_message
             )
-            VALUES (?, 'fixture.mp4', 'standard', 0, ?, ?, 0.0, 0, '{}', ?, ?, ?, ?)
+            VALUES (?, 'fixture.mp4', 0, ?, ?, 0.0, 0, '{}', ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -62,7 +62,7 @@ async def test_run_pipeline_claims_job_once_for_concurrent_runners(
 
     calls = 0
 
-    async def fake_run_stage(stage, state, mode):  # noqa: ANN001
+    async def fake_run_stage(stage, state):  # noqa: ANN001
         nonlocal calls
         calls += 1
         await asyncio.sleep(0.05)
@@ -106,7 +106,7 @@ async def test_run_pipeline_resume_skips_last_completed_stage(
     _insert_job(job_id, stage=Stage.TRANSCRIBE.value)
     calls: list[Stage] = []
 
-    async def fake_run_stage(stage, state, mode):  # noqa: ANN001
+    async def fake_run_stage(stage, state):  # noqa: ANN001
         calls.append(stage)
         return {}
 
@@ -128,7 +128,7 @@ async def test_run_pipeline_cancel_requeues_active_job(isolated_data_dir, monkey
     _insert_job(job_id)
     started = asyncio.Event()
 
-    async def fake_run_stage(stage, state, mode):  # noqa: ANN001
+    async def fake_run_stage(stage, state):  # noqa: ANN001
         started.set()
         await asyncio.Event().wait()
         return {}
@@ -162,7 +162,7 @@ async def test_run_pipeline_records_active_stage_without_marking_completed(
     release = asyncio.Event()
     calls: list[Stage] = []
 
-    async def blocking_stage(stage, state, mode):  # noqa: ANN001
+    async def blocking_stage(stage, state):  # noqa: ANN001
         calls.append(stage)
         started.set()
         await release.wait()
@@ -193,7 +193,7 @@ async def test_run_pipeline_records_active_stage_without_marking_completed(
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
 
-    async def completing_stage(stage, state, mode):  # noqa: ANN001
+    async def completing_stage(stage, state):  # noqa: ANN001
         calls.append(stage)
         return {}
 

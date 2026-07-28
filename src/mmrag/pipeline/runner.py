@@ -61,7 +61,7 @@ def _claim_job(job_id: str, runner_id: str) -> dict | None:
         if cur.rowcount != 1:
             return None
         row = conn.execute(
-            "SELECT id, source, mode, push_to_sbt, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
+            "SELECT id, source, push_to_sbt, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
         return dict(row) if row is not None else None
@@ -633,7 +633,7 @@ async def _push_to_sbt_if_requested(asset_id: str | None, push_to_sbt: bool) -> 
         log.warning("sbt.push_failed", asset_id=asset_id, error=str(e))
 
 
-async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
+async def _run_stage(stage: Stage, state: dict) -> dict:
     """Dispatch a stage by name. M1 only has fetch+normalize as real stages;
     everything else returns a stub patch."""
     if stage is Stage.FETCH:
@@ -671,7 +671,6 @@ async def _run_stage(stage: Stage, state: dict, mode: str) -> dict:
             scenes=state.get("scenes", []),
             assets_dir=settings.assets_dir,
             content_hash=content_hash,
-            mode=mode,
         )
     if stage is Stage.OCR:
         if state.get("is_document"):
@@ -729,7 +728,6 @@ async def run_pipeline(job_id: str) -> None:
     completed_idx = (
         M1_STAGE_ORDER.index(completed_stage) if completed_stage in M1_STAGE_ORDER else -1
     )
-    mode = row["mode"] or "standard"
     push_to_sbt = bool(row["push_to_sbt"])
 
     try:
@@ -750,7 +748,7 @@ async def run_pipeline(job_id: str) -> None:
                 progress=idx / n_stages,
                 runner_id=runner_id,
             )
-            patch = await _run_stage(stage, state, mode)
+            patch = await _run_stage(stage, state)
             state.update(patch or {})
             if stage is Stage.NORMALIZE and "content_hash" in state:
                 # Persist the asset row as soon as we know the canonical
