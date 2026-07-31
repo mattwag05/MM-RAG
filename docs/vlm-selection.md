@@ -234,3 +234,82 @@ Two consequences:
   before MM-RAG-yzt**, or caption work will look excellent in `make eval` for the wrong reason.
 - **Gemma-4-E4B was measured at B=1 only** and MiniCPM at B≤8, to avoid exhausting RAM. Both were
   already out on other criteria, so this does not affect the decision.
+
+---
+
+# Round 2 — text-promptable captioners and transcript conditioning
+
+Date: 2026-07-31 · Bead: MM-RAG-58v · Harness additions: `--with-transcript` corpus mode,
+per-frame `{transcript}` prompt templating, candidates `smolvlm2-2.2b[-cond]`,
+`qwen3.5-2b-cond`, `minicpm-v-4.6-cond`.
+
+Motivated by the gap analysis of HKUDS/VideoRAG (conditions every segment caption on the
+transcript, MiniCPM-V-2.6) and Grigorij-Dudnik/video-understanding-local (SmolVLM2-2.2B
+video-chunk descriptions). Corpus: `eval/vlm-frames-transcript.jsonl`, 40 midpoint frames
+from scenes WITH speech (the conditioning population), same manifest format as round 1.
+
+## Result
+
+1. **Florence-2-base `<DETAILED_CAPTION>` stays the ingest captioner.** Nothing displaced it.
+2. **Transcript conditioning is REJECTED on measured evidence** (see below) — captions stay
+   unconditioned even when a text-promptable model is used.
+3. **If a text-promptable captioner is wanted, use `openbmb/MiniCPM-V-4_6` (1.3B).** Best
+   distinct-word ratio measured across both rounds (0.559 plain at B=1 on this corpus), ~5.9 GB
+   resident, ~2.0 s/frame at B=1. Note VideoRAG's own MiniCPM-V-2.6 is an 8B-class model whose
+   int4 build is CUDA-only — V-4.6 is the variant that actually fits MM-RAG's MPS/edge targets.
+
+## Measurements (transcript corpus, fp32, sdpa, MPS)
+
+| Model | Params | Disk MB | Resident MB | p50 ms @B=1 | p50 @B=8 | distinct-word | peak MB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| florence-base `<DETAILED_CAPTION>` | 0.23B | 469 | 1764 | 429 | 195 | 0.300 | 5839 (B=8) |
+| smolvlm2-2.2b | 2.2B | 8991 | 10070 | 3326 | 2614 | 0.425 | 44274 (B=1) / **92336 (B=8)** |
+| minicpm-v-4.6 (B=1 only, n=20) | 1.3B | 2621 | 5885 | 1967 | — | 0.559 | — |
+| minicpm-v-4.6-cond (B=1 only, n=20) | 1.3B | 2621 | 5887 | 1955 | — | 0.594 | — |
+
+**SmolVLM2-2.2B is disqualified on cost, not quality.** Its captions are fine (0.425
+distinct-word, zero duplicates), but 7.7× Florence's latency, 5.7× its resident memory, and a
+**92 GB peak footprint at B=8 fp32** — the machine went 44 GB into swap. Its post-release
+footprint (86 GB) also re-confirms MM-RAG-ei7: model memory does not come back; only the
+child-process job architecture makes any of these models usable. The `smolvlm2-2.2b-cond`
+run was killed mid-flight for RAM; the plain run's numbers settle the question without it.
+
+## Why transcript conditioning is rejected
+
+Conditioning is latency-free (1955 vs 1967 ms) and slightly raises distinct-word ratio — and
+it is still the wrong call, because of what it does to caption *content* (side-by-side from
+`minicpm-v-4.6[-cond].json`, same frames, same model):
+
+1. **ASR errors become visual "facts".** Transcript: *"they have really really warm crumbs"*
+   (ASR mishearing of "really long trunks"). Conditioned caption: *"the elephants have warm
+   crumbs, as described in the transcript"*. The caption stream now asserts things no pixel
+   supports.
+2. **Modality leakage.** Conditioned captions say *"as described in the transcript"* and quote
+   subtitle text. Captions are indexed in `fts_scenes` as the VISUAL text stream; leaking
+   transcript into them double-counts speech across fusion streams — the same failure class
+   that kept `vec_scenes` out of hybrid RRF (MM-RAG-7l1).
+3. **Empty-visual pollution.** A black frame's conditioned caption embeds the transcript
+   instead of reporting an empty frame.
+
+MM-RAG's caption stage exists to describe what is VISIBLE in scenes that have no other
+signal. Keeping it unconditioned preserves stream independence and keeps ASR errors out of
+visual evidence. VideoRAG can afford conditioned captions because an LLM re-reads everything
+at query time; MM-RAG's evidence pack is consumed as-is.
+
+## Artifacts
+
+- `eval/vlm-frames-transcript.jsonl` — pinned 40-frame with-transcript corpus
+  (`python scripts/vlm_bench.py --build-corpus ... --with-transcript`).
+- Raw round-2 JSONs (incl. every caption) were produced under the session scratchpad
+  (`vlm-r2/`); regenerate with the commands above — the corpus manifest is the pinned part.
+
+## Threats to validity
+
+- The transcript corpus is 34/40 frames from one talking-head asset (it has most of the
+  speech scenes in the local store); the conditioning failure modes were nonetheless
+  observed across three different assets.
+- MiniCPM rows are B=1, n=20 (RAM discipline after the SmolVLM2 run); its round-1 B=8
+  numbers (1073 ms/frame) still hold for throughput planning.
+- `qwen3.5-2b-cond` was defined but not run this round — Qwen's round-1 latency/memory
+  already places it behind MiniCPM for this slot, and the conditioning question was settled
+  without it.

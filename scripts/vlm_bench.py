@@ -58,6 +58,17 @@ DEFAULT_MANIFEST = REPO_ROOT / "eval" / "vlm-frames.jsonl"
 EMPTY_SCENE_SUMMARY = "No transcript or OCR text detected."
 CAPTION_PROMPT = "Describe this image in one or two factual sentences."
 
+# Round 2 (MM-RAG-58v): transcript-conditioned captioning, VideoRAG-style.
+# ``{transcript}`` is filled per frame from the manifest's ``transcript``
+# field (build the corpus with ``--build-corpus ... --with-transcript``).
+# Florence-2 is a fixed-task model and cannot take this prompt at all — that
+# structural limit is half the reason this round exists.
+COND_PROMPT = (
+    "The transcript of this moment in the video:\n{transcript}\n"
+    "Describe this image in one or two factual sentences, grounded in the "
+    "transcript where it helps identify what is shown."
+)
+
 
 # --------------------------------------------------------------------------
 # candidates
@@ -95,6 +106,16 @@ CANDIDATES: tuple[Candidate, ...] = (
               square_pad=True),
     Candidate("gemma4-e2b", "google/gemma-4-E2B-it", "chat", "Apache-2.0", "5.1B"),
     Candidate("gemma4-e4b", "google/gemma-4-E4B-it", "chat", "Apache-2.0", "8B"),
+    # --- round 2 (MM-RAG-58v): text-promptable captioners, with and without
+    # transcript conditioning. -cond variants need a --with-transcript corpus.
+    Candidate("smolvlm2-2.2b", "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+              "chat", "Apache-2.0", "2.2B"),
+    Candidate("smolvlm2-2.2b-cond", "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+              "chat", "Apache-2.0", "2.2B", COND_PROMPT),
+    Candidate("qwen3.5-2b-cond", "Qwen/Qwen3.5-2B", "chat", "Apache-2.0", "2B",
+              COND_PROMPT),
+    Candidate("minicpm-v-4.6-cond", "openbmb/MiniCPM-V-4_6", "chat", "Apache-2.0",
+              "1.3B", COND_PROMPT, square_pad=True),
 )
 
 BY_KEY = {c.key: c for c in CANDIDATES}
@@ -181,7 +202,7 @@ def ocr_word_ratio(text: str) -> float:
     return len(good) / len(toks)
 
 
-def build_corpus(out: Path, limit: int) -> int:
+def build_corpus(out: Path, limit: int, with_transcript: bool = False) -> int:
     """Select midpoint frames from scenes with no transcript.
 
     MM-RAG-yzt scopes captioning to frame_idx=0 (the scene midpoint), so this
@@ -204,16 +225,21 @@ def build_corpus(out: Path, limit: int) -> int:
     settings = get_settings()
     conn = sqlite3.connect(str(settings.db_path))
     conn.row_factory = sqlite3.Row
+    # with_transcript flips the predicate: round 2 (MM-RAG-58v) benches
+    # transcript-conditioned captioning, which needs scenes that HAVE speech.
+    predicate = "EXISTS" if with_transcript else "NOT EXISTS"
     rows = conn.execute(
-        """
+        f"""
         SELECT f.id AS frame_id, f.asset_id, s.scene_idx, f.frame_idx,
                f.t_s, f.path, COALESCE(f.ocr_text, '') AS ocr_text,
-               a.source_url, a.content_hash, s.summary
+               a.source_url, a.content_hash, s.summary,
+               (SELECT GROUP_CONCAT(t2.text, ' ') FROM transcript_segments t2
+                 WHERE t2.scene_id = s.id) AS transcript
           FROM frames f
           JOIN scenes s ON s.id = f.scene_id
           JOIN assets a ON a.id = f.asset_id
          WHERE f.frame_idx = 0
-           AND NOT EXISTS (
+           AND {predicate} (
                  SELECT 1 FROM transcript_segments t
                   WHERE t.scene_id = s.id AND TRIM(t.text) != ''
                )
@@ -264,6 +290,7 @@ def build_corpus(out: Path, limit: int) -> int:
                         "ocr_text": r["ocr_text"][:300],
                         "ocr_ratio": round(ocr_word_ratio(r["ocr_text"]), 3),
                         "strict_empty_scene": r["summary"] == EMPTY_SCENE_SUMMARY,
+                        "transcript": (r["transcript"] or "")[:500],
                     }
                 )
                 + "\n"
@@ -271,7 +298,8 @@ def build_corpus(out: Path, limit: int) -> int:
             by_asset[r["asset_id"]] = by_asset.get(r["asset_id"], 0) + 1
             written += 1
 
-    print(f"no-transcript midpoint frames: {len(rows)}; written: {written} -> {out}")
+    kind = "with-transcript" if with_transcript else "no-transcript"
+    print(f"{kind} midpoint frames: {len(rows)}; written: {written} -> {out}")
     print(f"  of which strictly empty (transcript AND OCR both empty): {strict}")
     for aid, n in by_asset.items():
         print(f"  {aid[:12]}… {n} frames")
@@ -370,37 +398,57 @@ def _open_images(rows: list[dict], square_pad: bool = False):
     return out
 
 
-def run_batch(model, processor, cand: Candidate, images, max_new_tokens: int):
-    """Returns (generate_seconds, captions, total_new_tokens, preprocess_seconds)."""
+def run_batch(model, processor, cand: Candidate, images, max_new_tokens: int,
+              rows: list[dict] | None = None):
+    """Returns (generate_seconds, captions, total_new_tokens, preprocess_seconds).
+
+    ``rows`` is only consulted when the candidate's prompt carries a
+    ``{transcript}`` placeholder — each frame then gets its own prompt filled
+    from the manifest's ``transcript`` field (empty string when absent).
+    """
     import torch
 
     n = len(images)
+    conditioned = "{transcript}" in cand.prompt
+
+    def _prompt_for(i: int) -> str:
+        if not conditioned:
+            return cand.prompt
+        transcript = (rows[i].get("transcript") or "") if rows else ""
+        return cand.prompt.format(transcript=transcript)
+
     t_pre = time.perf_counter()
     if cand.adapter == "florence":
         inputs = processor(
             text=[cand.prompt] * n, images=images, return_tensors="pt"
         )
     else:
-        msgs = [
-            {
-                "role": "user",
-                "content": [{"type": "image"}, {"type": "text", "text": cand.prompt}],
-            }
-        ]
-        text = processor.apply_chat_template(msgs, add_generation_prompt=True)
-        if not isinstance(text, str):  # some processors return token ids
-            text = processor.decode(text)
+        texts = []
+        for i in range(n):
+            msgs = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": _prompt_for(i)},
+                    ],
+                }
+            ]
+            text = processor.apply_chat_template(msgs, add_generation_prompt=True)
+            if not isinstance(text, str):  # some processors return token ids
+                text = processor.decode(text)
+            texts.append(text)
         processor.tokenizer.padding_side = "left"
         try:
             inputs = processor(
-                text=[text] * n, images=images, return_tensors="pt", padding=True
+                text=texts, images=images, return_tensors="pt", padding=True
             )
         except ValueError:
             # Some processors (Gemma-4) read a flat image list as ONE batch of
             # n images rather than n batches of one, and need explicit nesting.
             # Flat stays primary so already-measured candidates keep their path.
             inputs = processor(
-                text=[text] * n,
+                text=texts,
                 images=[[img] for img in images],
                 return_tensors="pt",
                 padding=True,
@@ -532,7 +580,8 @@ def bench_one(cand: Candidate, rows: list[dict], batches: list[int],
                     continue
                 warm = images[: min(b, len(images))]
                 for _ in range(2):  # MPS compiles kernels per tensor shape
-                    run_batch(model, processor, cand, warm, max_new_tokens)
+                    run_batch(model, processor, cand, warm, max_new_tokens,
+                              rows[: len(warm)])
 
                 per_frame_ms: list[float] = []
                 pre_ms: list[float] = []
@@ -541,7 +590,7 @@ def bench_one(cand: Candidate, rows: list[dict], batches: list[int],
                 for i in range(0, len(images), b):
                     chunk = images[i : i + b]
                     gen_s, caps, ntok, pre_s = run_batch(
-                        model, processor, cand, chunk, max_new_tokens
+                        model, processor, cand, chunk, max_new_tokens, rows[i : i + b]
                     )
                     per_frame_ms.extend([gen_s * 1000 / len(chunk)] * len(chunk))
                     pre_ms.append(pre_s * 1000 / len(chunk))
@@ -683,6 +732,8 @@ def dump_html(results: list[ModelResult], out: Path, n: int) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--build-corpus", type=Path, metavar="OUT")
+    ap.add_argument("--with-transcript", action="store_true",
+                    help="corpus from scenes WITH speech (round-2 conditioning)")
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     ap.add_argument("--model", help="bench a single candidate key")
     ap.add_argument("--all", action="store_true", help="subprocess per candidate")
@@ -703,7 +754,7 @@ def main() -> None:
         return
 
     if args.build_corpus:
-        build_corpus(args.build_corpus, args.limit)
+        build_corpus(args.build_corpus, args.limit, args.with_transcript)
         return
 
     args.out.mkdir(parents=True, exist_ok=True)

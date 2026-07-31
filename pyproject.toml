@@ -44,6 +44,8 @@ dev = [
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
   "ruff>=0.7",
+  # SmolVLM's processor imports it; needed only by scripts/vlm_bench.py.
+  "num2words>=0.5",
 ]
 m3-visual = [
   "open-clip-torch>=2.24",

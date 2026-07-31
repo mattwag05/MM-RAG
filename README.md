@@ -422,6 +422,17 @@ moments first and only handing those to Gemma. The architecture has a
 pluggable slot for a dedicated video VLM (LLaVA-Video, VideoLLaMA, future
 `gemma4:video`) when the temporal reasoning needs more.
 
+**Why are model batches capped at 8?** Because on-device, **peak memory scales
+with batch size, not model size** — and the peak, not the average, is what
+OOM-kills an edge box. Measured on MPS (fp32): Florence-2-base is 0.23B params
+yet peaked at 5.8 GB at batch 8 and 21 GB at batch 32; SmolVLM2-2.2B peaked at
+44 GB at batch 1 and **92 GB at batch 8** (see `docs/vlm-selection.md`). The
+planned architecture assumes edge deployments and keeps batches small; if your
+hardware is generous you can raise the batch in the caption/embed stages, but
+budget RAM for the batch-scaled peak, not the model's resident size — and
+remember the peak lives in the per-job child process, so
+`MMRAG_WORKER_CONCURRENCY` multiplies it.
+
 **Why is `ingest` synchronous if I pass `wait_ms`?** Because most of what
 people actually ingest interactively is short-form social content (Reels,
 Shorts, TikToks). The 30-second default is enough for the bread-and-butter

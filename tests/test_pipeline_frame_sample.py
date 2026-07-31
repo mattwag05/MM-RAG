@@ -138,3 +138,43 @@ async def test_frame_sample_missing_mezzanine_file_returns_empty(tmp_path):
         content_hash="h",
     )
     assert patch == {"frames": []}
+
+
+def _make_static_video(path: Path, duration: int = 15) -> None:
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"smptebars=duration={duration}:size=160x120:rate=24",
+            "-pix_fmt",
+            "yuv420p",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+async def test_frame_sample_dedupes_static_scene_frames(tmp_path):
+    """A static 15s scene collapses to one frame; near-duplicates are dropped
+    before OCR/caption/embed ever see them (MM-RAG-mdn). Measured MADs:
+    static lavfi sources 0.0-0.11, moving testsrc 10+ — threshold 3.0 sits
+    far from both, and the testsrc stride test above proves moving content
+    keeps all its frames."""
+    video = tmp_path / "static.mp4"
+    _make_static_video(video, duration=15)
+    scenes = [{"scene_idx": 0, "start_s": 0.0, "end_s": 15.0}]
+    patch = await frame_sample(
+        mezzanine_path=str(video),
+        scenes=scenes,
+        assets_dir=tmp_path,
+        content_hash="statichash",
+    )
+    frames = patch["frames"]
+    assert len(frames) == 1, f"expected 1 deduped frame, got {len(frames)}"
+    # Dropped duplicates must not leave orphan JPEGs behind.
+    frames_dir = tmp_path / "statichash" / "frames"
+    assert len(list(frames_dir.glob("*.jpg"))) == 1
