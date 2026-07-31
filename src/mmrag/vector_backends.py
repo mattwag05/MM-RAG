@@ -33,6 +33,14 @@ class VectorBackend(Protocol):
         limit: int,
     ) -> list[VectorHit]: ...
 
+    def scene_hits(
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
+    ) -> list[VectorHit]: ...
+
 
 def _pack(v: list[float]) -> bytes:
     return struct.pack(f"<{len(v)}f", *v)
@@ -126,6 +134,48 @@ class SqliteVecBackend:
             )
         return out
 
+    def scene_hits(
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
+    ) -> list[VectorHit]:
+        sql = """
+            SELECT s.id      AS scene_id,
+                   s.summary AS summary,
+                   vs.distance AS distance
+              FROM vec_scenes vs
+              JOIN scenes s ON s.id = vs.rowid
+             WHERE {asset_filter}
+               {time_filter}
+               vs.embedding MATCH ?
+               AND k = ?
+        """
+        asset_filter = "vs.asset_id = ? AND" if asset_id is not None else ""
+        time_filter = "s.end_s >= ? AND s.start_s <= ? AND" if time_range is not None else ""
+        sql = sql.format(asset_filter=asset_filter, time_filter=time_filter)
+        params: list = []
+        if asset_id is not None:
+            params.append(asset_id)
+        if time_range is not None:
+            params.extend([time_range[0], time_range[1]])
+        params.extend([_pack(qvec), limit])
+        with connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        out: list[VectorHit] = []
+        for row in rows:
+            summary = row["summary"] or ""
+            out.append(
+                VectorHit(
+                    scene_id=int(row["scene_id"]),
+                    score=_cosine(float(row["distance"])),
+                    snippet=(summary[:80] + ("…" if len(summary) > 80 else "")) or None,
+                    source="vec_scenes",
+                )
+            )
+        return out
+
 
 class QdrantBackend:
     def __init__(self, url: str | None):
@@ -141,6 +191,15 @@ class QdrantBackend:
         return []
 
     def transcript_hits(
+        self,
+        qvec: list[float],
+        asset_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
+    ) -> list[VectorHit]:
+        return []
+
+    def scene_hits(
         self,
         qvec: list[float],
         asset_id: str | None,

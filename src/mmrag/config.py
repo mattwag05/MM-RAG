@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # empty string (MMRAG_TRANSCRIBE_QUANTIZATION="") to select fp32.
     transcribe_model: str = "nemo-parakeet-tdt-0.6b-v3"
     transcribe_quantization: str | None = "int8"
+    # Fetch manual platform caption tracks and use them instead of ASR when
+    # present (MM-RAG-8vj). Auto-captions are never fetched.
+    subtitles_enabled: bool = True
     query_vector_enabled: bool = True
     vector_backend: str = "sqlite"
     qdrant_url: str | None = None

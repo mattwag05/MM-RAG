@@ -657,6 +657,7 @@ async def _run_stage(stage: Stage, state: dict) -> dict:
         return await transcribe(
             audio_path=state.get("audio_path"),
             scenes=state.get("scenes", []),
+            subtitle_path=state.get("subtitle_path"),
         )
     if stage is Stage.FRAME_SAMPLE:
         if state.get("is_document"):

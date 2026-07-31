@@ -94,3 +94,58 @@ async def test_transcribe_real_asr_on_speech_fixture(speech_wav: Path) -> None:
     for seg in segments:
         assert seg["end_s"] > seg["start_s"]
         assert seg["text"].strip() != ""
+
+
+_VTT = """WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:01.500 align:start position:0%
+hello <c>world</c>
+
+00:00:01.500 --> 00:00:02.500
+testing one
+two
+
+00:00:02.600 --> 00:00:03.800
+three four
+"""
+
+
+@pytest.mark.asyncio
+async def test_transcribe_uses_subtitles_when_present(monkeypatch, tmp_path) -> None:
+    """A fetched caption track replaces ASR entirely (MM-RAG-8vj)."""
+
+    def fail_stt(audio_path: str) -> list[dict]:
+        raise AssertionError("ASR must not run when a subtitle track is present")
+
+    monkeypatch.setattr(transcribe_mod, "_run_speech_to_text", fail_stt)
+
+    vtt = tmp_path / "subs.en.vtt"
+    vtt.write_text(_VTT, encoding="utf-8")
+    scenes = [
+        {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0},
+        {"scene_idx": 1, "start_s": 2.0, "end_s": 4.0},
+    ]
+    result = await transcribe(
+        audio_path=str(SAMPLE_WAV), scenes=scenes, subtitle_path=str(vtt)
+    )
+    segments = result["segments"]
+
+    assert result["transcript_source"] == "captions"
+    assert [s["text"] for s in segments] == ["hello world", "testing one two", "three four"]
+    assert [s["start_s"] for s in segments] == [0.0, 1.5, 2.6]
+    assert [s["scene_idx"] for s in segments] == [0, 0, 1]
+
+
+@pytest.mark.asyncio
+async def test_transcribe_missing_subtitle_file_falls_back_to_asr(monkeypatch) -> None:
+    def fake_stt(audio_path: str) -> list[dict]:
+        return [{"start": 0.0, "end": 1.0, "text": "from asr"}]
+
+    monkeypatch.setattr(transcribe_mod, "_run_speech_to_text", fake_stt)
+    result = await transcribe(
+        audio_path=str(SAMPLE_WAV), scenes=[], subtitle_path="/tmp/nope.vtt"
+    )
+    assert result["transcript_source"] == "asr"
+    assert [s["text"] for s in result["segments"]] == ["from asr"]

@@ -58,6 +58,7 @@ def _hit_to_evidence(hit, summaries: dict[str, str], captions: dict[str, str]) -
     )
     ocr_snippet = snippet if hit.source_stream in {"fts_scenes", "vec_frames"} else None
     return Evidence(
+        frame_path=hit.frame_path,
         caption=captions.get(hit.scene_id),
         asset_id=hit.asset_id,
         content_item_id=hit.content_item_id,
@@ -135,6 +136,7 @@ async def handle_ask(inp: AskInput) -> AskOutput:
             top_k=inp.top_k,
             mode="hybrid",
             time_range=inp.time_range,
+            include_frames=inp.include_frames,
         )
     )
     scene_ids = [hit.scene_id for hit in search_out.hits]

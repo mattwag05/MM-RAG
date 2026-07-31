@@ -176,6 +176,117 @@ async def test_hybrid_mode_fuses_streams(tmp_path, monkeypatch):
         reset_settings_for_tests(Settings())
 
 
+async def test_vector_mode_queries_vec_scenes_stream(tmp_path, monkeypatch):
+    """A scene whose ONLY match is its vec_scenes embedding is retrievable in
+    vector mode.
+
+    Regression for MM-RAG-7l1: vec_scenes is populated at ingest but no
+    retrieval stream queried it. It joins vector mode only — as a hybrid RRF
+    stream it double-counts vec_frames (scene vectors are mean-pools of frame
+    vectors) and measurably regressed eval MRR, so hybrid must NOT see it.
+    """
+    try:
+        _bootstrap(tmp_path)
+        asset_id = str(uuid.uuid4())
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO assets(id, content_hash, source_kind, metadata_json) "
+                "VALUES (?, ?, 'file', '{}')",
+                (asset_id, "h4"),
+            )
+            conn.execute(
+                "INSERT INTO scenes(asset_id, scene_idx, start_s, end_s, summary) "
+                "VALUES (?, 0, 0.0, 2.0, 'Scene shows: a red square')",
+                (asset_id,),
+            )
+            scene_id = conn.execute(
+                "SELECT id FROM scenes WHERE asset_id=?", (asset_id,)
+            ).fetchone()["id"]
+
+        target = [0.0] * 768
+        target[0] = 1.0
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO vec_scenes(rowid, embedding, asset_id) VALUES (?, ?, ?)",
+                (scene_id, _pack(target), asset_id),
+            )
+
+        from mmrag.handlers import search as search_mod
+
+        async def fake_encode(_q: str) -> list[float]:
+            return target
+
+        monkeypatch.setattr(search_mod, "_encode_query_text", fake_encode)
+
+        out_v = await handle_search(
+            SearchInput(query="red square", mode="vector", asset_id=asset_id, top_k=5)
+        )
+        assert out_v.hits, "scene with only a vec_scenes embedding was not retrieved"
+        assert out_v.hits[0].scene_id == str(scene_id)
+        assert out_v.hits[0].source_stream == "vec_scenes"
+        # Vector mode returns raw cosine (== 1.0 for identical vectors).
+        assert out_v.hits[0].score > 0.99
+
+        # Hybrid must NOT fuse vec_scenes (it double-counts vec_frames — see
+        # module docstring). This scene has no other index rows, so hybrid
+        # returns nothing for it.
+        out_h = await handle_search(
+            SearchInput(query="red square", mode="hybrid", asset_id=asset_id, top_k=5)
+        )
+        assert not [h for h in out_h.hits if h.source_stream == "vec_scenes"]
+    finally:
+        reset_settings_for_tests(Settings())
+
+
+async def test_include_frames_returns_frame_paths(tmp_path, monkeypatch):
+    """include_frames=True attaches the frame JPEG path so a local agent can
+    look at the retrieved moment (MM-RAG-0t2). Off by default."""
+    try:
+        _bootstrap(tmp_path)
+        asset_id = str(uuid.uuid4())
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO assets(id, content_hash, source_kind, metadata_json) "
+                "VALUES (?, ?, 'file', '{}')",
+                (asset_id, "h5"),
+            )
+            conn.execute(
+                "INSERT INTO scenes(asset_id, scene_idx, start_s, end_s) VALUES (?, 0, 0.0, 2.0)",
+                (asset_id,),
+            )
+            scene_id = conn.execute(
+                "SELECT id FROM scenes WHERE asset_id=?", (asset_id,)
+            ).fetchone()["id"]
+            # Transcript match only — the hit itself carries no frame_id, so the
+            # scene's first frame must be attached as the representative.
+            conn.execute(
+                "INSERT INTO transcript_segments(asset_id, scene_id, seg_idx, start_s, end_s, text) "
+                "VALUES (?, ?, 0, 0.0, 2.0, 'green mountain landscape')",
+                (asset_id, scene_id),
+            )
+            conn.execute(
+                "INSERT INTO frames(asset_id, scene_id, frame_idx, t_s, path) "
+                "VALUES (?, ?, 0, 1.0, '/data/frames/rep.jpg')",
+                (asset_id, scene_id),
+            )
+
+        out = await handle_search(
+            SearchInput(
+                query="green mountain", mode="hybrid", asset_id=asset_id, include_frames=True
+            )
+        )
+        assert out.hits
+        assert out.hits[0].frame_path == "/data/frames/rep.jpg"
+
+        # Off by default — no filesystem paths leak unless asked for.
+        out_default = await handle_search(
+            SearchInput(query="green mountain", mode="hybrid", asset_id=asset_id)
+        )
+        assert out_default.hits and out_default.hits[0].frame_path is None
+    finally:
+        reset_settings_for_tests(Settings())
+
+
 async def test_asset_scoped_vector_search_filters_inside_knn(tmp_path, monkeypatch):
     """Regression: sqlite-vec k= is global unless asset_id is an aux filter."""
     try:

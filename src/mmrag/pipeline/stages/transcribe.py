@@ -46,6 +46,7 @@ The stage is structured in two layers:
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 from mmrag.config import get_settings
@@ -55,6 +56,46 @@ log = get_logger("stage.transcribe")
 
 _MODEL = None
 _MAX_SPEECH_S = 5  # see module docstring for the measurement table
+
+# "HH:MM:SS.mmm" with optional hours ("MM:SS.mmm"), as WebVTT allows both.
+_VTT_CUE_RE = re.compile(
+    r"^\s*((?:\d+:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d+:)?\d{2}:\d{2}\.\d{3})"
+)
+_VTT_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _vtt_ts(ts: str) -> float:
+    parts = [float(p) for p in ts.split(":")]
+    while len(parts) < 3:
+        parts.insert(0, 0.0)
+    h, m, s = parts
+    return h * 3600 + m * 60 + s
+
+
+def _parse_vtt(path: Path) -> list[dict]:
+    """Parse a WebVTT caption file into raw ``[{"start","end","text"}]`` dicts.
+
+    Platform caption tracks fetched by the fetch stage (MM-RAG-8vj). Styling
+    tags are stripped; multi-line cue payloads join with spaces.
+    """
+    cues: list[dict] = []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    i = 0
+    while i < len(lines):
+        m = _VTT_CUE_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        start, end = _vtt_ts(m.group(1)), _vtt_ts(m.group(2))
+        i += 1
+        text_lines: list[str] = []
+        while i < len(lines) and lines[i].strip():
+            text_lines.append(_VTT_TAG_RE.sub("", lines[i]).strip())
+            i += 1
+        text = " ".join(t for t in text_lines if t).strip()
+        if text:
+            cues.append({"start": start, "end": end, "text": text})
+    return cues
 
 
 def _get_model():
@@ -99,16 +140,7 @@ def _assign_scene(start_s: float, scenes: list[dict]) -> int | None:
     return None
 
 
-async def transcribe(*, audio_path: str | None, scenes: list[dict]) -> dict:
-    if audio_path is None:
-        return {"segments": []}
-    if not Path(audio_path).exists():
-        log.warning("audio_missing", path=audio_path)
-        return {"segments": []}
-
-    log.info("transcribe.start", path=audio_path, n_scenes=len(scenes))
-    raw = await asyncio.to_thread(_run_speech_to_text, audio_path)
-
+def _to_segments(raw: list[dict], scenes: list[dict]) -> list[dict]:
     segments: list[dict] = []
     for raw_seg in raw:
         text = (raw_seg.get("text") or "").strip()
@@ -125,6 +157,40 @@ async def transcribe(*, audio_path: str | None, scenes: list[dict]) -> dict:
                 "scene_idx": _assign_scene(start_s, scenes),
             }
         )
+    return segments
 
+
+async def transcribe(
+    *, audio_path: str | None, scenes: list[dict], subtitle_path: str | None = None
+) -> dict:
+    """``transcript_source`` records provenance: ``captions`` when a platform
+    subtitle track replaced ASR, ``asr`` otherwise (persisted with the job's
+    pipeline_state)."""
+    # Platform caption track wins over ASR: manual captions are authored, and
+    # skipping ASR makes captioned-URL ingest dramatically cheaper (MM-RAG-8vj).
+    # The fetch stage only requests MANUAL subs — auto-captions are worse than
+    # Parakeet (~6.3% WER) and are never fetched.
+    if subtitle_path is not None:
+        if Path(subtitle_path).exists():
+            cues = _parse_vtt(Path(subtitle_path))
+            if cues:
+                segments = _to_segments(cues, scenes)
+                log.info(
+                    "transcribe.captions", path=subtitle_path, n_segments=len(segments)
+                )
+                return {"segments": segments, "transcript_source": "captions"}
+            log.warning("subtitles.empty", path=subtitle_path)
+        else:
+            log.warning("subtitles.missing", path=subtitle_path)
+
+    if audio_path is None:
+        return {"segments": [], "transcript_source": "asr"}
+    if not Path(audio_path).exists():
+        log.warning("audio_missing", path=audio_path)
+        return {"segments": [], "transcript_source": "asr"}
+
+    log.info("transcribe.start", path=audio_path, n_scenes=len(scenes))
+    raw = await asyncio.to_thread(_run_speech_to_text, audio_path)
+    segments = _to_segments(raw, scenes)
     log.info("transcribe.done", path=audio_path, n_segments=len(segments))
-    return {"segments": segments}
+    return {"segments": segments, "transcript_source": "asr"}

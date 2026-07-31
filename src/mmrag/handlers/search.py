@@ -8,6 +8,13 @@ Hybrid retrieval fuses five streams via reciprocal rank fusion (k=60):
   4. SigLIP text-tower cosine over vec_transcript
   5. FTS5 BM25 over the content_items projection (via fts_content_items)
 
+``vector`` mode additionally queries vec_scenes (mean-pooled frame vectors
+per scene). vec_scenes is deliberately excluded from hybrid RRF: it is a
+projection of vec_frames, and as a sixth fusion stream it double-counts the
+visual signal — measured MRR on eval/smoke.jsonl dropped 1.000 → 0.833
+(MM-RAG-7l1). Vector mode dedups scenes by max score, so the extra stream
+cannot double-count there.
+
 Every stream goes through fusion. Nothing is ranked on its raw stream
 score, because those scores are not comparable: cosine runs 0.0–1.0 while
 negated BM25 runs ~1–20, so any list concatenated onto fused results
@@ -256,6 +263,26 @@ def _vec_transcript_stream(
     ]
 
 
+def _vec_scenes_stream(
+    qvec: list[float], asset_id: str | None, time_range: tuple[float, float] | None
+) -> list[_StreamHit]:
+    try:
+        hits = _vector_backend().scene_hits(qvec, asset_id, time_range, _PER_STREAM_TOP)
+    except Exception as e:  # noqa: BLE001
+        log.warning("vec_scenes.failed", error=str(e))
+        return []
+    return [
+        _StreamHit(
+            scene_id=int(hit.scene_id),
+            score=hit.score,
+            snippet=hit.snippet,
+            source=hit.source,
+        )
+        for hit in hits
+        if hit.scene_id is not None
+    ]
+
+
 def _content_items_hits(
     query: str,
     asset_id: str | None,
@@ -343,6 +370,42 @@ def _scene_timing(scene_ids: list[int]) -> dict[int, tuple[str, float, float]]:
     return {
         int(r["id"]): (str(r["asset_id"]), float(r["start_s"]), float(r["end_s"])) for r in rows
     }
+
+
+def _attach_frame_paths(hits: list[SearchHit]) -> list[SearchHit]:
+    """Fill ``frame_path`` on each hit (include_frames opt-in, MM-RAG-0t2).
+
+    Hits carrying a frame_id get that frame's JPEG; scene hits without one
+    (e.g. transcript matches) get the scene's first frame as representative.
+    """
+    frame_ids = sorted({int(h.frame_id) for h in hits if h.frame_id is not None})
+    scene_ids = sorted(
+        {int(h.scene_id) for h in hits if h.frame_id is None and h.scene_id is not None}
+    )
+    by_frame: dict[int, str] = {}
+    by_scene: dict[int, str] = {}
+    with connect() as conn:
+        if frame_ids:
+            placeholders = ",".join("?" * len(frame_ids))
+            rows = conn.execute(
+                f"SELECT id, path FROM frames WHERE id IN ({placeholders})",  # noqa: S608
+                frame_ids,
+            ).fetchall()
+            by_frame = {int(r["id"]): str(r["path"]) for r in rows if r["path"]}
+        if scene_ids:
+            placeholders = ",".join("?" * len(scene_ids))
+            rows = conn.execute(
+                f"SELECT scene_id, path, MIN(frame_idx) FROM frames "  # noqa: S608
+                f"WHERE scene_id IN ({placeholders}) GROUP BY scene_id",
+                scene_ids,
+            ).fetchall()
+            by_scene = {int(r["scene_id"]): str(r["path"]) for r in rows if r["path"]}
+    for hit in hits:
+        if hit.frame_id is not None:
+            hit.frame_path = by_frame.get(int(hit.frame_id))
+        elif hit.scene_id is not None:
+            hit.frame_path = by_scene.get(int(hit.scene_id))
+    return hits
 
 
 def _rrf_fuse(
@@ -441,6 +504,13 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         if qvec:
             streams.append(_vec_frames_stream(qvec, inp.asset_id, inp.time_range))
             streams.append(_vec_transcript_stream(qvec, inp.asset_id, inp.time_range))
+            if base_mode == "vector":
+                # vec_scenes joins vector mode only, where flat-max dedup makes
+                # double-counting impossible. It is deliberately NOT a hybrid
+                # RRF stream: scene vectors are mean-pools of vec_frames, so as
+                # a sixth stream they re-count the visual signal — measured on
+                # eval/smoke.jsonl, MRR 1.000 → 0.833 (MM-RAG-7l1).
+                streams.append(_vec_scenes_stream(qvec, inp.asset_id, inp.time_range))
     elif base_mode in ("vector", "hybrid"):
         log.info("query_vector.disabled", mode=inp.mode)
 
@@ -502,6 +572,8 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         ]
         if inp.mode == "hybrid_graph":
             hits = _with_graph_expansion(hits, inp)
+        if inp.include_frames:
+            hits = _attach_frame_paths(hits)
         return SearchOutput(hits=hits)
 
     if base_mode == "vector":
@@ -527,6 +599,8 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
             for h in ordered_v
             if h.scene_id in scene_meta
         ]
+        if inp.include_frames:
+            hits = _attach_frame_paths(hits)
         return SearchOutput(hits=hits)
 
     # hybrid: RRF fusion over all streams, content_items included. Already
@@ -560,6 +634,8 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
     hits = hits[: inp.top_k]
     if inp.mode == "hybrid_graph":
         hits = _with_graph_expansion(hits, inp)
+    if inp.include_frames:
+        hits = _attach_frame_paths(hits)
     return SearchOutput(hits=hits)
 
 

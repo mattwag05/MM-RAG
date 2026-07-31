@@ -92,10 +92,13 @@ def _register_tools(server: FastMCP) -> None:
         top_k: int = 5,
         model: str = "gemma4:e4b",
         synthesize: bool = False,
+        include_frames: bool = False,
     ) -> dict:
         """Answer a natural-language question about an ingested asset (or the
         whole library). By default returns retrieved evidence only; set
-        synthesize=true to ask the configured reasoning backend for an answer."""
+        synthesize=true to ask the configured reasoning backend for an answer.
+        Set include_frames=true to get local frame JPEG paths on each evidence
+        item so you can look at the retrieved moments yourself."""
         inp = AskInput(
             question=question,
             asset_id=asset_id,
@@ -103,6 +106,7 @@ def _register_tools(server: FastMCP) -> None:
             top_k=top_k,
             model=model,
             synthesize=synthesize,
+            include_frames=include_frames,
         )
         out: AskOutput = await handle_ask(inp)
         return out.model_dump()
@@ -114,14 +118,17 @@ def _register_tools(server: FastMCP) -> None:
         time_range: list[float] | None = None,
         top_k: int = 10,
         mode: str = "hybrid",
+        include_frames: bool = False,
     ) -> dict:
-        """Search transcripts, OCR, document content, and optional graph context."""
+        """Search transcripts, OCR, document content, and optional graph context.
+        Set include_frames=true to get local frame JPEG paths on each hit."""
         inp = SearchInput(
             query=query,
             asset_id=asset_id,
             time_range=tuple(time_range) if time_range is not None else None,
             top_k=top_k,
             mode=mode,
+            include_frames=include_frames,
         )
         out: SearchOutput = await handle_search(inp)
         return out.model_dump()

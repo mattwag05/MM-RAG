@@ -72,3 +72,29 @@ async def test_fetch_duplicate_url_cleans_second_raw_download(
     assert first["raw_path"] == second["raw_path"]
     assert Path(first["raw_path"]).exists()
     assert list((get_settings().assets_dir / "raw").iterdir()) == []
+
+
+def test_subtitles_from_info_prefers_original_language() -> None:
+    """Manual caption track selection from a yt-dlp info dict (MM-RAG-8vj)."""
+    from mmrag.pipeline.stages.fetch import _subtitles_from_info
+
+    info = {
+        "language": "de",
+        "requested_subtitles": {
+            "en": {"filepath": "/tmp/v.en.vtt"},
+            "de": {"filepath": "/tmp/v.de.vtt"},
+        },
+    }
+    assert _subtitles_from_info(info) == ("/tmp/v.de.vtt", "de")
+
+
+def test_subtitles_from_info_falls_back_to_first_track() -> None:
+    from mmrag.pipeline.stages.fetch import _subtitles_from_info
+
+    info = {
+        "language": "fr",
+        "requested_subtitles": {"en": {"filepath": "/tmp/v.en.vtt"}},
+    }
+    assert _subtitles_from_info(info) == ("/tmp/v.en.vtt", "en")
+    assert _subtitles_from_info({"requested_subtitles": {}}) is None
+    assert _subtitles_from_info({}) is None

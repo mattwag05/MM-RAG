@@ -106,3 +106,36 @@ async def test_ask_passes_time_range_into_search(monkeypatch, isolated_data_dir)
 
     assert len(out.evidence) == 1
     assert out.evidence[0].start_s == 12.0
+
+
+async def test_ask_include_frames_passes_through_and_copies_path(monkeypatch, isolated_data_dir):
+    """include_frames flows ask -> search, and frame_path flows hit -> Evidence
+    (MM-RAG-0t2)."""
+    from mmrag.handlers import search as search_mod
+
+    seen: dict = {}
+
+    async def fake_search(inp):
+        seen["include_frames"] = inp.include_frames
+        return SearchOutput(
+            hits=[
+                SearchHit(
+                    asset_id="asset-1",
+                    scene_id="10",
+                    frame_id="7",
+                    start_s=1.0,
+                    end_s=2.0,
+                    score=0.25,
+                    snippet="hello",
+                    source_stream="fts_transcript",
+                    frame_path="/data/frames/7.jpg",
+                )
+            ]
+        )
+
+    monkeypatch.setattr(search_mod, "handle_search", fake_search)
+
+    out = await handle_ask(AskInput(question="what happened?", include_frames=True))
+
+    assert seen["include_frames"] is True
+    assert out.evidence[0].frame_path == "/data/frames/7.jpg"

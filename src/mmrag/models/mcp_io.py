@@ -41,6 +41,7 @@ class AskInput(BaseModel):
     top_k: int = Field(5, ge=1, le=50)
     model: Literal["gemma4:e4b", "gemma4:e2b"] = "gemma4:e4b"
     synthesize: bool = False
+    include_frames: bool = False
 
     @model_validator(mode="after")
     def _time_range_ordered(self) -> AskInput:
@@ -65,9 +66,12 @@ class Evidence(BaseModel):
     ocr_snippet: str | None = None
     transcript_snippet: str | None = None
     # VLM caption written at ingest for scenes with no speech and no
-    # on-screen text. Without it those scenes carry no describable content
-    # at all — the frame JPEG cannot be returned through this model.
+    # on-screen text.
     caption: str | None = None
+    # Local path of the hit's frame JPEG (or the scene's representative
+    # frame). Populated only when the caller opts in with include_frames —
+    # stdio MCP runs on the same host, so the consuming agent can open it.
+    frame_path: str | None = None
 
 
 class AskOutput(BaseModel):
@@ -91,6 +95,7 @@ class SearchInput(BaseModel):
     top_k: int = Field(10, ge=1, le=100)
     mode: Literal["hybrid", "vector", "fts", "hybrid_graph"] = "hybrid"
     time_range: tuple[float, float] | None = None
+    include_frames: bool = False
 
     @model_validator(mode="after")
     def _time_range_ordered(self) -> SearchInput:
@@ -111,6 +116,8 @@ class SearchHit(BaseModel):
     score: float
     snippet: str | None = None
     source_stream: str = "hybrid"
+    # See Evidence.frame_path — opt-in via SearchInput.include_frames.
+    frame_path: str | None = None
 
 
 class SearchOutput(BaseModel):

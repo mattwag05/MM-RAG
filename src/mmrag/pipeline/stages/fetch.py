@@ -31,6 +31,25 @@ def _hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _subtitles_from_info(info: dict) -> tuple[str, str] | None:
+    """Pick the manual caption track to use from a yt-dlp info dict.
+
+    Prefers the video's original language, falls back to the first written
+    track. Returns (filepath, lang) or None when no track was written.
+    """
+    subs = info.get("requested_subtitles") or {}
+    tracks = {
+        lang: t.get("filepath") for lang, t in subs.items() if t and t.get("filepath")
+    }
+    if not tracks:
+        return None
+    lang = info.get("language")
+    if lang in tracks:
+        return str(tracks[lang]), str(lang)
+    first = next(iter(tracks))
+    return str(tracks[first]), str(first)
+
+
 async def _fetch_url(source: str, dest_dir: Path) -> tuple[Path, dict]:
     """Download with yt-dlp into dest_dir. Returns (downloaded_path, info)."""
     # Imported lazily so that local-file ingest doesn't require yt-dlp at all.
@@ -47,6 +66,17 @@ async def _fetch_url(source: str, dest_dir: Path) -> tuple[Path, dict]:
         "merge_output_format": "mp4",
         "restrictfilenames": True,
     }
+    if get_settings().subtitles_enabled:
+        # Manual captions only — never auto-captions, which are worse than the
+        # local ASR (Parakeet ~6.3% WER). transcribe uses the track when
+        # present and falls back to ASR otherwise (MM-RAG-8vj).
+        opts.update(
+            {
+                "writesubtitles": True,
+                "subtitlesformat": "vtt/best",
+                "subtitleslangs": ["all"],
+            }
+        )
 
     def _do_download() -> dict:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -67,11 +97,14 @@ async def _fetch_url(source: str, dest_dir: Path) -> tuple[Path, dict]:
             "source_unreachable",
             f"yt-dlp reported success but file not found: {path}",
         )
+    subtitles = _subtitles_from_info(info)
     return path, {
         "title": info.get("title"),
         "duration_s": info.get("duration"),
         "extractor": info.get("extractor"),
         "webpage_url": info.get("webpage_url") or source,
+        "subtitle_path": subtitles[0] if subtitles else None,
+        "subtitle_lang": subtitles[1] if subtitles else None,
     }
 
 
@@ -85,12 +118,16 @@ async def fetch(*, source: str) -> dict:
     raw_dir = settings.assets_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
+    subtitle_path: str | None = None
+    subtitle_lang: str | None = None
     if _is_url(source):
         log.info("fetch.url", source=source)
         downloaded, info = await _fetch_url(source, raw_dir)
         source_kind = "url"
         source_url = info.get("webpage_url")
         title = info.get("title")
+        subtitle_path = info.get("subtitle_path")
+        subtitle_lang = info.get("subtitle_lang")
         # Move into a hash-keyed location after we know the hash.
     else:
         src_path = Path(source).expanduser().resolve()
@@ -114,6 +151,14 @@ async def fetch(*, source: str) -> dict:
     elif source_kind == "url" and downloaded.resolve() != raw_dest.resolve():
         downloaded.unlink(missing_ok=True)
 
+    # Keep the caption track with the asset, like the raw media above.
+    if subtitle_path is not None:
+        sub_src = Path(subtitle_path)
+        sub_dest = asset_dir / f"subs{''.join(sub_src.suffixes[-2:])}"
+        if sub_src.exists() and sub_src.resolve() != sub_dest.resolve():
+            shutil.move(str(sub_src), str(sub_dest))
+        subtitle_path = str(sub_dest) if sub_dest.exists() else None
+
     return {
         "asset_id": str(uuid.uuid4()),
         "content_hash": content_hash,
@@ -121,6 +166,8 @@ async def fetch(*, source: str) -> dict:
         "source_url": source_url,
         "title": title,
         "raw_path": str(raw_dest),
+        "subtitle_path": subtitle_path,
+        "subtitle_lang": subtitle_lang,
         "is_document": is_document_source(str(raw_dest)),
         "document_type": raw_dest.suffix.lower().lstrip(".") or None,
     }
