@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 
 from mmrag.config import get_settings
@@ -17,6 +18,10 @@ _EXTERNAL_RUNNER_POLL_S = 0.1
 
 def _create_job(inp: IngestInput) -> str:
     job_id = str(uuid.uuid4())
+    # The profile rides in pipeline_state_json rather than a jobs column, so
+    # adding a profile needs no migration and resume reads it back for free.
+    # See pipeline.runner._stage_order.
+    state = {} if inp.profile == "full" else {"profile": inp.profile}
     with connect() as conn, transaction(conn):
         conn.execute(
             """
@@ -24,13 +29,14 @@ def _create_job(inp: IngestInput) -> str:
                 id, source, push_to_sbt,
                 status, stage, progress, wait_ms, pipeline_state_json
             )
-            VALUES (?, ?, ?, 'queued', 'queued', 0.0, ?, '{}')
+            VALUES (?, ?, ?, 'queued', 'queued', 0.0, ?, ?)
             """,
             (
                 job_id,
                 inp.source,
                 int(inp.push_to_sbt),
                 inp.wait_ms,
+                json.dumps(state),
             ),
         )
     return job_id
@@ -45,6 +51,32 @@ def _read_job(job_id: str) -> dict | None:
     if row is None:
         return None
     return dict(row)
+
+
+async def run_job_and_wait(job_id: str, wait_ms: int) -> None:
+    """Drive ``job_id`` and return once it settles or ``wait_ms`` elapses.
+
+    "Inline" means this request owns the job, not that the pipeline runs in
+    this process: it runs in a child that exits, because pipeline models are
+    never reclaimed in-process (see mmrag.pipeline.spawn). When inline
+    execution is off, the worker owns the job and this only polls.
+    """
+    if get_settings().ingest_inline:
+        pipeline_task = asyncio.create_task(run_job(job_id))
+        try:
+            # wait_ms == 0 means "fire and forget, return immediately."
+            if wait_ms > 0:
+                await asyncio.wait_for(asyncio.shield(pipeline_task), timeout=wait_ms / 1000.0)
+        except TimeoutError:
+            # Don't cancel; let the in-process task keep running.
+            pass
+        return
+    deadline = asyncio.get_running_loop().time() + (wait_ms / 1000.0)
+    while asyncio.get_running_loop().time() < deadline:
+        job = _read_job(job_id)
+        if job is None or job["status"] in {JobStatus.DONE.value, JobStatus.ERROR.value}:
+            break
+        await asyncio.sleep(_EXTERNAL_RUNNER_POLL_S)
 
 
 def _read_summary(asset_id: str | None) -> str | None:
@@ -92,37 +124,18 @@ async def handle_ingest(inp: IngestInput) -> IngestOutput:
     Mac/local dev defaults to inline execution so short ingests can complete in
     one request. Pi/tailnet deployments set MMRAG_INGEST_INLINE=false so the MCP
     service only enqueues while the worker process owns heavy pipeline stages.
-
-    "Inline" means this request owns the job, not that the pipeline runs in this
-    process: it runs in a child that exits, because pipeline models are never
-    reclaimed in-process (see mmrag.pipeline.spawn).
     """
     job_id = _create_job(inp)
-    ingest_inline = get_settings().ingest_inline
     log.info(
         "ingest.queued",
         job_id=job_id,
         source=inp.source,
         wait_ms=inp.wait_ms,
-        ingest_inline=ingest_inline,
+        profile=inp.profile,
+        ingest_inline=get_settings().ingest_inline,
     )
 
-    if ingest_inline:
-        pipeline_task = asyncio.create_task(run_job(job_id))
-        try:
-            # wait_ms == 0 means "fire and forget, return immediately."
-            if inp.wait_ms > 0:
-                await asyncio.wait_for(asyncio.shield(pipeline_task), timeout=inp.wait_ms / 1000.0)
-        except TimeoutError:
-            # Don't cancel; let the in-process task keep running.
-            pass
-    elif inp.wait_ms > 0:
-        deadline = asyncio.get_running_loop().time() + (inp.wait_ms / 1000.0)
-        while asyncio.get_running_loop().time() < deadline:
-            job = _read_job(job_id)
-            if job is None or job["status"] in {JobStatus.DONE.value, JobStatus.ERROR.value}:
-                break
-            await asyncio.sleep(_EXTERNAL_RUNNER_POLL_S)
+    await run_job_and_wait(job_id, inp.wait_ms)
 
     job = _read_job(job_id)
     if job is None:

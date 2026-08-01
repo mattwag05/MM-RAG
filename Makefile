@@ -23,7 +23,7 @@ export UV_PROJECT_ENVIRONMENT := .venv.nosync
 # extras to non-distributable dependency-groups.)
 UV_RUN := uv run --extra dev --extra m3-visual
 
-.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-mcp worker eval eval-full bench-vlm bench-vlm-corpus bench-vlm-html docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
+.PHONY: help sync sync-dev sync-m3 test lint format clean init-db serve-api serve-mcp serve-mcp-http check-mcp worker eval eval-scenes eval-full bench-vlm bench-vlm-corpus bench-vlm-html docker-build docker-up docker-pi-config docker-pi-up docker-pi-down docker-pi-logs
 
 help:
 	@echo "Targets:"
@@ -40,6 +40,7 @@ help:
 	@echo "  make check-mcp   # validate the deployed MCP service"
 	@echo "  make worker      # drain the job queue"
 	@echo "  make eval        # deterministic retrieval eval (smoke dataset)"
+	@echo "  make eval-scenes # scene-level eval — use this to judge a retrieval change"
 	@echo "  make eval-full   # ingest public-URL eval media, then full eval (slow)"
 	@echo "  make clean       # remove venv + caches"
 	@echo "  make docker-build"
@@ -87,6 +88,9 @@ worker:
 
 eval:
 	$(UV_RUN) mmrag eval --dataset eval/smoke.jsonl --ingest
+
+eval-scenes:
+	$(UV_RUN) mmrag eval --dataset eval/scenes.jsonl --mode hybrid --top-k 10
 
 eval-full:
 	$(UV_RUN) mmrag eval --dataset eval/full.jsonl --ingest

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -352,3 +353,59 @@ async def test_asset_scoped_vector_search_filters_inside_knn(tmp_path, monkeypat
         assert out.hits[0].asset_id == asset_a
     finally:
         reset_settings_for_tests(Settings())
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_reserves_slots_so_it_can_actually_contribute(
+    isolated_data_dir: Path, monkeypatch
+) -> None:
+    """hybrid_graph appended expanded hits AFTER a list already truncated to
+    top_k, so a graph hit could never survive when direct retrieval filled the
+    result set — i.e. essentially always. Measured before the fix: 10 graph
+    candidates per query, 0 in the output, at top_k 10/20/40 (MM-RAG-gje).
+    """
+    from mmrag.handlers import search as search_mod
+    from mmrag.models.mcp_io import SearchHit
+
+    base = [
+        SearchHit(asset_id="a", scene_id=str(i), start_s=0.0, end_s=1.0, score=1.0 - i / 100)
+        for i in range(10)
+    ]
+    graph = [
+        SearchHit(
+            asset_id="a",
+            content_item_id=f"g{i}",
+            start_s=0.0,
+            end_s=1.0,
+            score=0.5,
+            source_stream="graph",
+        )
+        for i in range(5)
+    ]
+    monkeypatch.setattr(search_mod, "expand_search_hits", lambda *a, **k: graph)
+
+    out = search_mod._with_graph_expansion(base, SearchInput(query="q", top_k=10))
+
+    assert len(out) == 10
+    n_graph = sum(1 for h in out if h.source_stream == "graph")
+    assert n_graph == search_mod._graph_quota(10) == 2
+
+
+@pytest.mark.asyncio
+async def test_graph_expansion_with_nothing_fresh_leaves_the_result_untouched(
+    isolated_data_dir: Path, monkeypatch
+) -> None:
+    """A quota must not cost real hits when the graph has nothing new to add."""
+    from mmrag.handlers import search as search_mod
+    from mmrag.models.mcp_io import SearchHit
+
+    base = [
+        SearchHit(asset_id="a", scene_id=str(i), start_s=0.0, end_s=1.0, score=1.0)
+        for i in range(10)
+    ]
+    # Everything the graph returns is already in the result set.
+    monkeypatch.setattr(search_mod, "expand_search_hits", lambda *a, **k: list(base))
+
+    out = search_mod._with_graph_expansion(base, SearchInput(query="q", top_k=10))
+
+    assert [h.scene_id for h in out] == [h.scene_id for h in base]

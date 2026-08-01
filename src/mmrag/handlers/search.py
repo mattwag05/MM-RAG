@@ -8,6 +8,14 @@ Hybrid retrieval fuses five streams via reciprocal rank fusion (k=60):
   4. SigLIP text-tower cosine over vec_transcript
   5. FTS5 BM25 over the content_items projection (via fts_content_items)
 
+``hybrid_graph`` adds one-hop graph neighbours under a reserved quota (see
+``_with_graph_expansion``). **It currently costs precision for no measured
+gain** — on ``eval/scenes.jsonl`` hybrid scores recall 1.000 / precision 0.295
+/ MRR 0.867 and hybrid_graph scores 1.000 / 0.270 / 0.867. The graph's topic
+nodes are regex tokens, so they include stopwords and OCR misreads
+(``ghatgpt``, ``spotfy-``) as first-class entities. Re-check with
+``make eval-scenes`` before treating the mode as an improvement (MM-RAG-gje).
+
 ``vector`` mode additionally queries vec_scenes (mean-pooled frame vectors
 per scene). vec_scenes is deliberately excluded from hybrid RRF: it is a
 projection of vec_frames, and as a sixth fusion stream it double-counts the
@@ -30,12 +38,18 @@ FTS hits carry segment-level start_s/end_s (the timestamp of the matched
 text, not the enclosing scene boundary). This preserves backward
 compatibility with tests that check segment-precision timestamps.
 Vector/hybrid hits carry scene-level start_s/end_s from scenes table.
+
+Both transcript streams attribute a hit to **every scene it overlaps in
+time**, not to the single ``transcript_segments.scene_id`` FK, which is
+assigned from the segment's start time alone. See ``_expand_over_scenes``
+(MM-RAG-s0l) — on the reference asset that moved scene reachability from
+51/89 to 89/89.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect
@@ -71,6 +85,11 @@ class _StreamHit:
     # own key and supply their own asset_id/timestamps.
     content_item_id: str | None = field(default=None)
     asset_id: str | None = field(default=None)
+    # Overrides positional rank in RRF. One transcript segment fans out to
+    # every scene it overlaps (MM-RAG-s0l); without this the 2nd..Nth copies
+    # would push every later segment down the ranking as if they were weaker
+    # matches. Unset means "use your position", i.e. the original behaviour.
+    rank_hint: int | None = field(default=None)
 
     @property
     def key(self) -> tuple[str, str]:
@@ -124,6 +143,65 @@ def _fts_query(query: str) -> str | None:
     return " ".join(out) if out else None
 
 
+def _scenes_by_asset(asset_ids: set[str]) -> dict[str, list[tuple[int, float, float]]]:
+    """{asset_id: [(scene_id, start_s, end_s), ...]} for the given assets."""
+    ids = sorted(a for a in asset_ids if a)
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, asset_id, start_s, end_s FROM scenes "  # noqa: S608
+            f"WHERE asset_id IN ({placeholders}) ORDER BY asset_id, start_s",
+            ids,
+        ).fetchall()
+    out: dict[str, list[tuple[int, float, float]]] = {}
+    for r in rows:
+        out.setdefault(str(r["asset_id"]), []).append(
+            (int(r["id"]), float(r["start_s"]), float(r["end_s"]))
+        )
+    return out
+
+
+def _expand_over_scenes(hits: list[_StreamHit]) -> list[_StreamHit]:
+    """Attribute each transcript hit to every scene it overlaps (MM-RAG-s0l).
+
+    ``transcript_segments.scene_id`` is a single FK assigned from the segment's
+    START time, so a segment that crosses a cut is filed under the first scene
+    only. That is not an edge case here: measured on the reference asset the
+    median segment runs 4.4 s against a 2.5 s median scene, **82% of segments
+    span more than one scene**, and the stored FK reaches 51 of 89 scenes while
+    speech actually overlaps all 89. Retrieval keys on scene identity, so those
+    38 scenes were unreachable through the transcript streams.
+
+    Rank is preserved via ``rank_hint``: all scenes of one segment share that
+    segment's rank, so fanning out cannot reorder the stream.
+    """
+    scenes = _scenes_by_asset({h.asset_id for h in hits if h.asset_id})
+    if not scenes:
+        return hits
+    out: list[_StreamHit] = []
+    for rank, hit in enumerate(hits):
+        candidates = scenes.get(hit.asset_id or "", [])
+        overlapping = (
+            [
+                scene_id
+                for scene_id, start_s, end_s in candidates
+                if end_s > hit.start_s and start_s < hit.end_s
+            ]
+            if hit.start_s is not None and hit.end_s is not None
+            else []
+        )
+        if not overlapping:
+            # No timing, or a segment outside every scene: keep the stored FK
+            # so this can only add reach, never remove it.
+            out.append(replace(hit, rank_hint=rank))
+            continue
+        for scene_id in overlapping:
+            out.append(replace(hit, scene_id=scene_id, rank_hint=rank))
+    return out
+
+
 def _time_overlap_clause(alias: str) -> str:
     return f" AND {alias}.end_s >= ? AND {alias}.start_s <= ?"
 
@@ -143,6 +221,7 @@ def _fts_transcript_stream(
         return []
     sql = """
         SELECT ts.scene_id   AS scene_id,
+               ts.asset_id   AS asset_id,
                ts.start_s    AS start_s,
                ts.end_s      AS end_s,
                -bm25(fts_transcript) AS score,
@@ -165,18 +244,22 @@ def _fts_transcript_stream(
         except Exception as e:  # noqa: BLE001
             log.warning("fts_transcript.failed", error=str(e))
             return []
-    return [
-        _StreamHit(
-            scene_id=int(r["scene_id"]),
-            score=float(r["score"]),
-            snippet=r["snippet"],
-            start_s=float(r["start_s"]),
-            end_s=float(r["end_s"]),
-            source="fts_transcript",
-        )
-        for r in rows
-        if r["scene_id"] is not None
-    ]
+    # A NULL scene_id is not dropped: _expand_over_scenes re-attributes by
+    # time overlap, so the segment stays reachable (MM-RAG-s0l).
+    return _expand_over_scenes(
+        [
+            _StreamHit(
+                scene_id=int(r["scene_id"]) if r["scene_id"] is not None else None,
+                score=float(r["score"]),
+                snippet=r["snippet"],
+                start_s=float(r["start_s"]),
+                end_s=float(r["end_s"]),
+                source="fts_transcript",
+                asset_id=r["asset_id"],
+            )
+            for r in rows
+        ]
+    )
 
 
 def _fts_scenes_stream(
@@ -251,16 +334,20 @@ def _vec_transcript_stream(
     except Exception as e:  # noqa: BLE001
         log.warning("vec_transcript.failed", error=str(e))
         return []
-    return [
-        _StreamHit(
-            scene_id=int(hit.scene_id),
-            score=hit.score,
-            snippet=hit.snippet,
-            source=hit.source,
-        )
-        for hit in hits
-        if hit.scene_id is not None
-    ]
+    return _expand_over_scenes(
+        [
+            _StreamHit(
+                scene_id=int(hit.scene_id) if hit.scene_id is not None else None,
+                score=hit.score,
+                snippet=hit.snippet,
+                source=hit.source,
+                asset_id=hit.asset_id,
+                start_s=hit.start_s,
+                end_s=hit.end_s,
+            )
+            for hit in hits
+        ]
+    )
 
 
 def _vec_scenes_stream(
@@ -408,6 +495,60 @@ def _attach_frame_paths(hits: list[SearchHit]) -> list[SearchHit]:
     return hits
 
 
+# A scene shorter than this is adequately represented by its single midpoint
+# frame, and densifying it would add little — flagging those would make the
+# note fire on most hits and train the agent to ignore it.
+_SPARSE_MIN_SCENE_S = 6.0
+# Ingest samples roughly one frame per 2s on long scenes. Below one frame per
+# 5s the scene is materially thinner than the sampler nominally provides,
+# usually because near-duplicate dedup collapsed a static shot.
+_SPARSE_FRAMES_PER_S = 0.2
+
+
+def _attach_coverage_notes(hits: list[SearchHit]) -> list[SearchHit]:
+    """Flag hits whose scene is thinly sampled for its duration (MM-RAG-4k5).
+
+    Retrieval can land on a 40-second static shot represented by one frame.
+    Nothing in the evidence pack said so, and the agent had no way to tell
+    "there is little here" from "the pipeline only looked once". This says
+    which it is, and names `densify` as the fix.
+    """
+    scene_ids = sorted({int(h.scene_id) for h in hits if h.scene_id is not None})
+    if not scene_ids:
+        return hits
+    placeholders = ",".join("?" * len(scene_ids))
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT s.id, s.end_s - s.start_s AS duration_s, COUNT(f.id) AS n_frames
+              FROM scenes s
+              LEFT JOIN frames f ON f.scene_id = s.id
+             WHERE s.id IN ({placeholders})
+             GROUP BY s.id
+            """,  # noqa: S608 — placeholders only
+            scene_ids,
+        ).fetchall()
+
+    notes: dict[int, str] = {}
+    for row in rows:
+        duration_s = float(row["duration_s"] or 0.0)
+        n_frames = int(row["n_frames"])
+        if duration_s < _SPARSE_MIN_SCENE_S:
+            continue
+        if n_frames and n_frames / duration_s >= _SPARSE_FRAMES_PER_S:
+            continue
+        seen = f"{n_frames} frame{'s' if n_frames != 1 else ''} sampled"
+        notes[int(row["id"])] = (
+            f"sparse visual coverage: {seen} across {duration_s:.1f}s — "
+            "call densify on this time range for a closer look"
+        )
+
+    for hit in hits:
+        if hit.scene_id is not None:
+            hit.coverage_note = notes.get(int(hit.scene_id))
+    return hits
+
+
 def _rrf_fuse(
     streams: list[list[_StreamHit]], top_k: int
 ) -> list[tuple[float, _StreamHit, int | None]]:
@@ -452,7 +593,8 @@ def _rrf_fuse(
     for hits in streams:
         top_score = max((hit.score for hit in hits), default=0.0)
         scored: set[tuple[str, str]] = set()
-        for rank, hit in enumerate(hits):
+        for position, hit in enumerate(hits):
+            rank = hit.rank_hint if hit.rank_hint is not None else position
             contribution = 1.0 / (_RRF_K + rank + 1)
             if top_score > 0:
                 # Negative cosine means "not similar" — clamp rather than
@@ -574,7 +716,7 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
             hits = _with_graph_expansion(hits, inp)
         if inp.include_frames:
             hits = _attach_frame_paths(hits)
-        return SearchOutput(hits=hits)
+        return SearchOutput(hits=_attach_coverage_notes(hits))
 
     if base_mode == "vector":
         flat_v: dict[int, _StreamHit] = {}
@@ -601,7 +743,7 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         ]
         if inp.include_frames:
             hits = _attach_frame_paths(hits)
-        return SearchOutput(hits=hits)
+        return SearchOutput(hits=_attach_coverage_notes(hits))
 
     # hybrid: RRF fusion over all streams, content_items included. Already
     # sorted by fused score — no re-sort, because there is now only one scale.
@@ -636,10 +778,31 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         hits = _with_graph_expansion(hits, inp)
     if inp.include_frames:
         hits = _attach_frame_paths(hits)
-    return SearchOutput(hits=hits)
+    return SearchOutput(hits=_attach_coverage_notes(hits))
+
+
+def _graph_quota(top_k: int) -> int:
+    """Slots reserved for graph-expanded hits when any survive dedup.
+
+    A quota rather than score interleaving: the graph's score is ``weight/100``
+    and the fused scores run ~0.016-0.05, so merging them by score would let an
+    arbitrary scale decide the ranking — the same trap the module docstring
+    warns about for raw stream scores.
+    """
+    return max(1, top_k // 4)
 
 
 def _with_graph_expansion(hits: list[SearchHit], inp: SearchInput) -> list[SearchHit]:
+    """Blend one-hop graph neighbours into an already-ranked result set.
+
+    ``hits`` arrives already truncated to ``top_k``. Appending the expanded
+    hits after it and stopping at ``top_k`` — which is what this did — meant a
+    graph hit could never survive whenever direct retrieval filled the result
+    set, i.e. essentially always. Measured before the fix: 10 graph candidates
+    produced per query and 0 in the output, at top_k 10, 20 and 40, so
+    ``hybrid_graph`` scored identically to ``hybrid`` on every metric.
+    Reserving a quota is what makes the mode able to do anything at all.
+    """
     if not get_settings().graph_enabled:
         return hits
     expanded = expand_search_hits(
@@ -648,14 +811,23 @@ def _with_graph_expansion(hits: list[SearchHit], inp: SearchInput) -> list[Searc
         asset_id=inp.asset_id,
         time_range=inp.time_range,
     )
-    merged: list[SearchHit] = []
-    seen: set[tuple[str, str | None, str | None, str | None]] = set()
-    for hit in [*hits, *expanded]:
+    seen = {(h.asset_id, h.content_item_id, h.scene_id, h.frame_id) for h in hits}
+    fresh: list[SearchHit] = []
+    for hit in expanded:
         key = (hit.asset_id, hit.content_item_id, hit.scene_id, hit.frame_id)
         if key in seen:
             continue
         seen.add(key)
-        merged.append(hit)
+        fresh.append(hit)
+    if not fresh:
+        return hits[: inp.top_k]
+
+    quota = min(len(fresh), _graph_quota(inp.top_k))
+    merged = [*hits[: inp.top_k - quota], *fresh[:quota]]
+    # Backfill from the base hits the quota displaced, so a short graph result
+    # never shrinks the response below what plain hybrid would have returned.
+    for hit in hits[inp.top_k - quota :]:
         if len(merged) >= inp.top_k:
             break
-    return merged
+        merged.append(hit)
+    return merged[: inp.top_k]

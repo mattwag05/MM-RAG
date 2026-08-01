@@ -10,7 +10,7 @@ import pytest
 
 from mmrag.config import get_settings
 from mmrag.pipeline.stages import fetch as fetch_mod
-from mmrag.pipeline.stages.fetch import FetchError, fetch
+from mmrag.pipeline.stages.fetch import FetchError, _format_selector, fetch
 from tests.conftest import SAMPLE_MP4
 
 
@@ -98,3 +98,26 @@ def test_subtitles_from_info_falls_back_to_first_track() -> None:
     assert _subtitles_from_info(info) == ("/tmp/v.en.vtt", "en")
     assert _subtitles_from_info({"requested_subtitles": {}}) is None
     assert _subtitles_from_info({}) is None
+
+
+def test_format_selector_prefers_a_dash_merge_over_progressive() -> None:
+    """The old selector was ``best[ext=mp4]/best``, which on YouTube only ever
+    matches progressive streams — capped at itag 18 = 640x360 — so every ingest
+    silently ran at 360p while 2160p was on offer. On-screen text does not
+    survive that, so the merge branch must come first (MM-RAG-7rm).
+    """
+    selector = _format_selector(1080)
+    merge_at = selector.index("bestvideo[height<=?1080]+bestaudio")
+    progressive_at = selector.index("best[ext=mp4]")
+    assert merge_at < progressive_at
+
+
+def test_format_selector_applies_the_height_cap_to_every_capped_branch() -> None:
+    """A cap that only guards the first branch silently pulls 4K whenever the
+    merge branch does not match."""
+    selector = _format_selector(720)
+    capped = [part for part in selector.split("/") if part.startswith(("bestvideo", "best["))]
+    assert [p for p in capped if "height<=?720" in p] == capped[:2]
+    # Non-strict comparison, so a format with no height metadata stays eligible.
+    assert "height<=?720" in selector
+    assert "height<=720" not in selector.replace("height<=?720", "")

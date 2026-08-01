@@ -37,6 +37,34 @@ gate on. A word-shape ratio filter was also rejected — it scores on-screen
 code at 0.22 and IDE breadcrumbs at 0.31, i.e. it penalises exactly the
 content PSM 3 is being kept for.
 
+Frames are OCR'd at their native size. **Do not upscale them** — measured on
+365 real frames at 1x/2x/3x with LANCZOS (MM-RAG-7rm,
+``scripts/ocr_resolution_bench.py``):
+
+    scale   frames with text   chars    noise share of tokens
+    1x         124/365          79047          66.1%
+    2x         152/365         109551          63.0%
+    3x         156/365         114776          63.4%
+
+Upscaling produces *more* text without producing better text. It un-empties
+38 frames that psm 3 had correctly emptied — undoing the one property psm 3
+was chosen for — and the noise share barely moves. Of the 33 scorable frames
+that gained text at 2x, 17 were >50% redundant with what the ASR stage had
+already transcribed (burned-in subtitles) and 10 were <5% redundant, i.e.
+pure hallucination ('oS TA so a- 43 ye :' off an unreadable laptop screen,
+confirmed by eye).
+
+Florence-2's ``<OCR>`` head was benched as a replacement and **rejected**: it
+never returns empty (text on 103/103 frames), so it cannot suppress noise at
+all, which is the one property psm 3 was selected for. Tesseract at 1080p beat
+every Florence condition on novel tokens, noise share, and latency. Full table
+in ``docs/vlm-selection.md`` round 3 (MM-RAG-9wq).
+
+Resolution *does* matter, but at the source, not here: 2x of a 640px frame
+adds pixels, not information. See ``fetch._format_selector`` — the old yt-dlp
+selector silently capped every download at 360p, at which point the on-screen
+text OCR exists to read is not in the frame at all.
+
 Per-frame OCR failures set ``ocr_text = ""`` and log a structured
 warning — they do not fail the stage. A missing Tesseract binary is a
 hard error and raises ``OCRError(kind='binary_missing')`` before any

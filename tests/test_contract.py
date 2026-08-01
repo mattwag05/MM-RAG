@@ -8,6 +8,8 @@ from pydantic import ValidationError
 from mmrag.models.mcp_io import (
     AskInput,
     AskOutput,
+    DensifyInput,
+    DensifyOutput,
     Evidence,
     IngestInput,
     IngestOutput,
@@ -35,12 +37,47 @@ class TestIngest:
         with pytest.raises(ValidationError):
             IngestInput(source="x", wait_ms=10**9)
 
+    def test_profile_defaults_to_full_and_rejects_unknown(self) -> None:
+        assert IngestInput(source="x").profile == "full"
+        IngestInput(source="x", profile="transcript_only")
+        with pytest.raises(ValidationError):
+            IngestInput(source="x", profile="token_burner")
+
     def test_output_shapes(self) -> None:
         IngestOutput(status="done", asset_id="a", job_id="j", summary=None)
         IngestOutput(status="in_progress", job_id="j")
         IngestOutput(status="error", error="boom")
         with pytest.raises(ValidationError):
             IngestOutput(status="weird")  # not in Literal
+
+
+class TestDensify:
+    def test_minimal_input(self) -> None:
+        inp = DensifyInput(asset_id="a", time_range=(1.0, 4.0))
+        assert inp.interval_s == 0.5
+        assert inp.wait_ms == 60000
+
+    def test_unknown_field_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            DensifyInput(asset_id="a", time_range=(1.0, 4.0), surprise="boom")
+
+    def test_empty_or_reversed_range_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            DensifyInput(asset_id="a", time_range=(4.0, 1.0))
+        with pytest.raises(ValidationError):
+            DensifyInput(asset_id="a", time_range=(2.0, 2.0))
+
+    def test_interval_bounds(self) -> None:
+        with pytest.raises(ValidationError):
+            DensifyInput(asset_id="a", time_range=(1.0, 4.0), interval_s=0.0)
+        with pytest.raises(ValidationError):
+            DensifyInput(asset_id="a", time_range=(1.0, 4.0), interval_s=60.0)
+
+    def test_output_shapes(self) -> None:
+        DensifyOutput(status="done", asset_id="a", job_id="j", frames_added=12)
+        DensifyOutput(status="error", error="boom")
+        with pytest.raises(ValidationError):
+            DensifyOutput(status="weird")
 
 
 class TestAsk:

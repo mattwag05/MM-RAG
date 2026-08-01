@@ -1,0 +1,36 @@
+# Scene-level eval (MM-RAG-gje). Unlike smoke.jsonl and full.jsonl, every gold
+# ref here carries a hand-verified `time_range`, so a hit only counts when it
+# lands on the right MOMENT — not merely the right asset. Asset-level gold on a
+# single-asset store scores 1.000 by construction and cannot detect a retrieval
+# change; that is why the s0l fix and the graph question both had no instrument.
+#
+# Ranges were read off this asset's own transcript segments and OCR frames, then
+# padded to the enclosing segment boundaries. Media is re-fetchable; nothing here
+# is committed.
+#
+# Tags mark which stream *should* win, so `first-hit streams` in the report is a
+# direct check on whether each stream earns its keep:
+#   transcript — the answer is spoken
+#   ocr        — the answer is ONLY on screen and never said aloud. These are the
+#                discriminating cases: no transcript stream can reach them.
+#   visual     — answerable from what is shown
+{"id": "setup-q01", "question": "Which MacBook model does the creator use?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [24.2, 33.7]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q02", "question": "Why does the creator prefer working on a single screen?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [52.4, 74.9]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q03", "question": "What code editor is recommended for coding on the Mac?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [90.9, 100.1]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q04", "question": "What does the AI code review catch before you commit?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [100.1, 112.3]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q05", "question": "What warning is given about trusting AI-generated code?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [119.9, 133.0]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q06", "question": "Which extension provides Vim key bindings in the editor?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [137.4, 150.6]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q07", "question": "What does the todo extension record when a task is marked done?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [181.4, 194.2]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q08", "question": "Which project management tools did the creator use before?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [203.8, 212.6]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q09", "question": "Which extensions let you paste and preview images inside the code base?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [212.6, 226.1]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q10", "question": "Which app lets you launch apps, manage windows and adjust system settings from one place?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [230.9, 245.5]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q11", "question": "Which community extensions does Raycast integrate with?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [240.8, 254.9]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q12", "question": "Where does the creator say they often work from?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [37.3, 47.9]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q13", "question": "What is said about the editor's autocompletion?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [112.3, 119.9]}], "tags": ["setup", "transcript"]}
+{"id": "setup-q14", "question": "What is the closing advice about how much gear you need?", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [254.9, 268.6]}], "tags": ["setup", "transcript"]}
+{"id": "setup-ocr01", "question": "a viewer comment about not being able to imagine working with one screen and no mouse", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [44.8, 49.0]}], "tags": ["setup", "ocr"]}
+{"id": "setup-ocr02", "question": "the vscodevim extension page in the marketplace", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [138.5, 144.0]}], "tags": ["setup", "ocr"]}
+{"id": "setup-ocr03", "question": "an on-screen list of horizontal navigation, vertical navigation and find words or characters", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [150.6, 159.4]}], "tags": ["setup", "ocr"]}
+{"id": "setup-ocr04", "question": "a tweet from Thomas Ricouard shown on screen", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [116.2, 121.4]}], "tags": ["setup", "ocr"]}
+{"id": "setup-ocr05", "question": "a Spotify controls panel listed among the extensions", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [245.5, 252.0]}], "tags": ["setup", "ocr"]}
+{"id": "setup-ocr06", "question": "source code containing addResourceRequestToAsk and a ResourceRequest parameter", "media": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "kind": "url"}], "gold": [{"source": "https://www.youtube.com/watch?v=AGrh9X0eU8I", "time_range": [221.8, 228.1]}], "tags": ["setup", "ocr"]}

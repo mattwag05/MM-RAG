@@ -15,6 +15,10 @@ class IngestInput(BaseModel):
     source: str = Field(..., description="URL or local file path")
     wait_ms: int = Field(30000, ge=0, le=600000)
     push_to_sbt: bool = False
+    # "transcript_only" skips frame sampling, OCR, and captioning — the three
+    # stages that dominate ingest cost — for bulk runs where speech is the
+    # point. Scene detection and transcript embeddings still run.
+    profile: Literal["full", "transcript_only"] = "full"
 
 
 class IngestOutput(BaseModel):
@@ -24,6 +28,39 @@ class IngestOutput(BaseModel):
     asset_id: str | None = None
     job_id: str | None = None
     summary: str | None = None
+    error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# densify
+# ---------------------------------------------------------------------------
+
+
+class DensifyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: str
+    time_range: tuple[float, float]
+    # Ingest samples a scene midpoint plus a 2s stride on long scenes, so
+    # anything under 2s is a genuine densification. The 0.1s floor is the
+    # point where fast-seek frame extraction stops resolving distinct frames.
+    interval_s: float = Field(0.5, ge=0.1, le=5.0)
+    wait_ms: int = Field(60000, ge=0, le=600000)
+
+    @model_validator(mode="after")
+    def _time_range_ordered(self) -> DensifyInput:
+        if self.time_range[0] >= self.time_range[1]:
+            raise ValueError("time_range start must be < end")
+        return self
+
+
+class DensifyOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["done", "in_progress", "error"]
+    asset_id: str | None = None
+    job_id: str | None = None
+    frames_added: int = 0
     error: str | None = None
 
 
@@ -72,6 +109,10 @@ class Evidence(BaseModel):
     # frame). Populated only when the caller opts in with include_frames —
     # stdio MCP runs on the same host, so the consuming agent can open it.
     frame_path: str | None = None
+    # Set only when this hit's scene is thinly sampled for its duration, and
+    # it names the remedy (`densify`). Absent means coverage is normal — the
+    # agent should not have to reason about frame counts to notice a gap.
+    coverage_note: str | None = None
 
 
 class AskOutput(BaseModel):
@@ -118,6 +159,8 @@ class SearchHit(BaseModel):
     source_stream: str = "hybrid"
     # See Evidence.frame_path — opt-in via SearchInput.include_frames.
     frame_path: str | None = None
+    # See Evidence.coverage_note. Always evaluated; usually None.
+    coverage_note: str | None = None
 
 
 class SearchOutput(BaseModel):

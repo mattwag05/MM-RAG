@@ -39,7 +39,8 @@ which clip in your library is the one where the onboarding modal appears.
   into a hybrid (vector + BM25) index. `ask` returns the top-k retrieved
   evidence by default; only `synthesize=true` hands that evidence to Gemma 4
   for a final answer.
-- **MCP-native** — four sharp tools: `ingest`, `ask`, `search`, `status`. Wire
+- **MCP-native** — five sharp tools: `ingest`, `ask`, `search`, `densify`,
+  `status`. Wire
   them into Claude Code, Claude Desktop, or any MCP client.
 - **MIT-clean** — every Python dependency is MIT, Apache-2, BSD, or
   public-domain. No GPL/AGPL. The two non-Python pieces (ffmpeg, Ollama+Gemma
@@ -56,7 +57,7 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ `status(job_id)` returns the live stage + progress fraction + error info
 - ✅ Crash-resumable pipeline — `jobs.stage` reports the active stage, while
   `pipeline_state_json.last_completed_stage` drives safe resume/retry
-- ✅ FastMCP stdio server with all 4 tools registered
+- ✅ FastMCP stdio server with all 5 tools registered
 - ✅ FastMCP Streamable HTTP server with shared bearer-token auth for private-network use
 - ✅ FastAPI REST mirror on `:8765` with the same surface
 - ✅ Background worker (`mmrag worker`) that drains the job queue
@@ -69,8 +70,16 @@ which clip in your library is the one where the onboarding modal appears.
 - ✅ Pluggable `ModelProvider` slot for the eventual VLM swap
 - ✅ Pydantic schema contract tests for every MCP tool's input/output
 - ✅ Pytest end-to-end tests with auto-generated ffmpeg lavfi fixtures
+- ✅ `ingest(..., profile="transcript_only")` skips frame sampling, OCR, and
+  captioning for bulk runs where the speech is the point — scene structure and
+  transcript embeddings still land, so transcript search is unaffected
+- ✅ `densify(asset_id, time_range, interval_s)` re-samples an already-ingested
+  range at higher frame density and re-indexes it (frame stride is otherwise
+  fixed at ingest), so an agent can look closer after search localizes a moment
 - ✅ `ask(...)` returns rich evidence packs by default (`answer=null`) and can
-  synthesize through Ollama/Gemma when `synthesize=true`
+  synthesize through Ollama/Gemma when `synthesize=true`, or through a local
+  MiniCPM-V-4.6 that also sees the retrieved frames
+  (`MMRAG_SYNTHESIZE_PROVIDER=minicpm`, workstation-only at ~5.9 GB resident)
 - ✅ Stage 8 writes deterministic per-scene summaries to `scenes.summary` and
   the `content_items` projection
 - ✅ `ingest(local_document)` for Markdown, HTML, TXT, DOCX, and PDF text
@@ -159,24 +168,44 @@ first run via `ffmpeg lavfi` sources into `tests/fixtures/` and gitignored.
 ## MCP tool surface
 
 ```
-ingest(source, wait_ms=30000, push_to_sbt=False)
+ingest(source, wait_ms=30000, push_to_sbt=False, profile="full")
   → { status, asset_id, job_id, summary, error }
+  profile="transcript_only" skips frame sampling, OCR, and captioning
 
 ask(question, asset_id=None, time_range=None, top_k=5,
     model="gemma4:e4b", synthesize=False)
   → { answer, evidence: [{ asset_id, content_item_id, scene_id, start_s, end_s,
-                           source_stream, snippet, score,
-                           summary, ocr_snippet, transcript_snippet }],
+                           source_stream, snippet, score, summary,
+                           ocr_snippet, transcript_snippet, coverage_note }],
       confidence }
 
 search(query, asset_id=None, time_range=None, top_k=10,
        mode="hybrid"|"vector"|"fts"|"hybrid_graph")
+  # "hybrid" is the one to use. "hybrid_graph" currently trades precision
+  # (0.295 -> 0.270) for no recall or MRR gain — see eval/README.md.
   → { hits: [{ asset_id, content_item_id, scene_id, frame_id, start_s, end_s,
-               score, snippet, source_stream }] }
+               score, snippet, source_stream, coverage_note }] }
+
+densify(asset_id, time_range, interval_s=0.5, wait_ms=60000)
+  → { status, asset_id, job_id, frames_added, error }
 
 status(job_id)
   → { status, stage, progress, asset_id, error }
 ```
+
+`densify` is the "look closer" move: frame stride is fixed at ingest, so once
+`search` or `ask` localizes a moment, `densify` re-samples that range every
+`interval_s` seconds, OCRs and embeds the new frames, and writes them into the
+same index. Re-run the query afterwards. It is a re-index, not a request-time
+model call.
+
+`coverage_note` is set only when the hit's scene is thinly sampled for its
+duration (under one frame per 5 s on a scene of 6 s or more), usually because
+near-duplicate dedup collapsed a static shot. It tells the consuming agent the
+difference between "there is little here" and "the pipeline only looked once",
+and names `densify` as the fix. Phrase `vector`-mode queries as declarative
+scene descriptions ("a person writing on a whiteboard"), not questions — the
+SigLIP text tower was trained against image captions.
 
 **REST-only (intentionally not exposed to MCP):** `reindex`, `retry`,
 `delete_asset`, `bulk_import`. These are admin moves; agents shouldn't have
@@ -295,12 +324,14 @@ Keep token values outside repo files and shell history.
 ```
                 ┌─────────────────────────────────────────────┐
                 │ MCP server (FastMCP stdio or HTTP)          │
-                │ tools: ingest / ask / search / status       │
+                │ tools: ingest / ask / search /              │
+                │        densify / status                     │
                 └───────────────┬─────────────────────────────┘
                                 │ shared handler implementations
                 ┌───────────────▼───────────────┐   ┌─────────────────┐
                 │ FastAPI REST mirror           │   │ Worker process  │
                 │ POST /ingest /ask /search     │◄──┤ drains job queue│
+                │      /densify                 │   │                 │
                 │ GET  /asset/{id} /jobs/{id}   │   │ (mmrag worker)  │
                 └───────────────┬───────────────┘   └────────▲────────┘
                                 │                            │
@@ -402,6 +433,23 @@ changing one constructor argument.
 
 ## "Why not X?"
 
+**Why not FluidAudio (or `fluidaudio-rs`) for speech-to-text?** Not a quality
+objection — it is a genuinely good project with benchmark regression gates in
+CI. It is simply not consumable from Python: no PyPI package, no pyo3/maturin
+bindings, and no release binaries (every recent release ships source tags with
+empty assets). It also has a hard `macOS 14` / iOS 17 + Apple Silicon floor and
+states that Linux and Windows are unsupported, which disqualifies it for a
+plugin meant to run anywhere. The useful insight was separating *model* from
+*runtime*: FluidAudio is fast because of **Parakeet-the-model** on CoreML, and
+the model half is reachable from pure Python through `onnx-asr` with no Swift
+toolchain. On the same clip, FluidAudio's CoreML path measured 0.194 s against
+0.500 s for a pure-Python MLX Parakeet and 6.961 s for `faster-whisper` — about
+2.5x over the Python route, nowhere near enough to justify requiring Xcode.
+`fluidaudio-rs` is strictly worse than the Swift original: a thin FFI shim over
+the same CoreML models that adds a Rust toolchain on top of the Swift one, drops
+the CLI, lags upstream, and ships no LICENSE file. Revisit only if FluidAudio
+publishes prebuilt CLI binaries or a PyPI package.
+
 **Why not Qdrant or Milvus?** Because on a Raspberry Pi, a separate vector
 daemon is ~half a gig of resident memory you don't have and a second process
 you don't want to babysit. `sqlite-vec` lives inside the same SQLite file as
@@ -413,6 +461,17 @@ pretrained diarization models are HuggingFace-gated under non-MIT terms,
 which makes it dirty for an MIT project that wants to ship without surprises.
 Diarization is deferred to v0.2 via `sherpa-onnx` (Apache-2). For
 short-form social content (the primary use case) you rarely care *who* spoke.
+
+**Can the optional synthesis step use something better than Gemma?** Yes —
+`MMRAG_SYNTHESIZE_PROVIDER=minicpm` swaps the opt-in `synthesize=true` backend
+to a local MiniCPM-V-4.6 (1.3B, Apache-2.0), which had the best caption quality
+across both benchmark rounds and, unlike the Ollama text path, can look at the
+retrieved frame JPEGs alongside the evidence text. It is strictly opt-in: the
+default is unchanged, and `synthesize=false` remains the default at every
+layer. It also needs ~5.9 GB resident, so it is a workstation option, not an
+edge one — a Pi cannot run it. On Apple silicon the only practical 4-bit route
+is MLX, which needs a different runtime and is Apple-only, so it is not wired
+in; `MMRAG_SYNTHESIZE_MODEL` lets you point the slot elsewhere.
 
 **Why Gemma 4 and not a "real" video VLM?** Because it runs on the kind of
 hardware you actually have. Gemma 4 has hard limits — 30 s of audio, ~60 s of
@@ -541,6 +600,12 @@ All runtime config is via env vars (`MMRAG_*`) or `.env`. See
 [.env.example](./.env.example) for the full list. The defaults are
 sensible for Mac dev; Pi deployment overrides `MMRAG_OLLAMA_URL`,
 `MMRAG_WORKER_CONCURRENCY`, and the data dir.
+
+The one knob worth knowing about up front is `MMRAG_MAX_VIDEO_HEIGHT`
+(default `1080`). It caps the resolution yt-dlp downloads, and it is what
+decides whether on-screen text is legible at all — at 360p the pixels do not
+carry it, and no amount of OCR tuning recovers it. Drop it to `360` or `480`
+on bandwidth- or CPU-constrained boxes if you only care about speech.
 
 ---
 

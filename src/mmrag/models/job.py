@@ -45,6 +45,48 @@ M1_STAGE_ORDER: tuple[Stage, ...] = (
     Stage.SUMMARIZE,
 )
 
+# Densify: re-sample an already-ingested time range at higher frame density
+# (MM-RAG-nwk). Everything before FRAME_SAMPLE is already persisted, so the
+# job resumes straight into sampling with a pre-seeded pipeline state.
+#
+# CAPTION is deliberately absent, and stays absent (decided in MM-RAG-ot7).
+# Ingest captions silent scenes because no agent is in the loop there. Densify
+# is always agent-initiated and hands back frame JPEG paths, so a 0.23B local
+# caption would duplicate — worse — what the calling agent gets by opening the
+# frame itself. The eligible population is also small and shrinking: raising
+# the source resolution (MM-RAG-7rm) cut frames with no OCR text at all from
+# 39/103 to 15/103 on the reference asset.
+# Mechanical blocker if this is ever revisited: _frames_needing_caption
+# targets frame_idx 0, densified frames start at max(frame_idx)+1, and
+# frame_idx 0 is the scene MIDPOINT — so "lowest t_s" is not an equivalent
+# rule and would change ingest-time behaviour.
+# SUMMARIZE is absent because it would rewrite scene summaries from a
+# partial state; the OCR persist branch already refreshes fts_scenes and
+# content_items from the DB.
+DENSIFY_STAGE_ORDER: tuple[Stage, ...] = (
+    Stage.FRAME_SAMPLE,
+    Stage.OCR,
+    Stage.EMBED,
+)
+
+# transcript_only: speech and scene structure, no visual pipeline (MM-RAG-3c6).
+# For bulk ingestion where the transcript is the whole point, this drops the
+# three stages that dominate wall-clock and memory — frame extraction, OCR,
+# and VLM captioning.
+#
+# EMBED stays: with no frames it encodes only transcript segments, which is
+# what vector-mode search over speech needs. It still loads SigLIP for the
+# text tower, so this profile saves time and frames-on-disk, not the model
+# download. SUMMARIZE stays and simply summarises from segments alone.
+TRANSCRIPT_ONLY_STAGE_ORDER: tuple[Stage, ...] = (
+    Stage.FETCH,
+    Stage.NORMALIZE,
+    Stage.SCENE_DETECT,
+    Stage.TRANSCRIBE,
+    Stage.EMBED,
+    Stage.SUMMARIZE,
+)
+
 
 class Job(BaseModel):
     model_config = ConfigDict(extra="ignore")

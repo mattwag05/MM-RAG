@@ -131,15 +131,20 @@ def _seed_content_items_among_filler(asset_id: str, content_hash: str, n: int = 
 
 @pytest.mark.asyncio
 async def test_fts_search_returns_matching_segment(isolated_data_dir: Path) -> None:
+    """The matching segment runs 1.6-3.0s across the 2.0s cut, so it belongs to
+    BOTH scenes. It used to surface only scene 0 — the scene its start time
+    landed in — which is the defect in MM-RAG-s0l."""
     _seed_asset_with_segments("a1", "h1")
     out = await handle_search(SearchInput(query="multimodal", mode="fts"))
-    assert len(out.hits) == 1
-    hit = out.hits[0]
-    assert hit.asset_id == "a1"
-    assert hit.start_s == pytest.approx(1.6)
-    assert hit.end_s == pytest.approx(3.0)
-    assert hit.snippet is not None
-    assert "multimodal" in hit.snippet.lower()
+    assert len(out.hits) == 2
+    assert {h.scene_id for h in out.hits} == {"1", "2"}
+    for hit in out.hits:
+        assert hit.asset_id == "a1"
+        # Both carry the segment's own timing, not the scene boundary.
+        assert hit.start_s == pytest.approx(1.6)
+        assert hit.end_s == pytest.approx(3.0)
+        assert hit.snippet is not None
+        assert "multimodal" in hit.snippet.lower()
 
 
 @pytest.mark.asyncio
@@ -147,8 +152,10 @@ async def test_fts_search_scopes_to_asset_id(isolated_data_dir: Path) -> None:
     _seed_asset_with_segments("a1", "h1")
     _seed_asset_with_segments("a2", "h2")
     out = await handle_search(SearchInput(query="multimodal", asset_id="a2", mode="fts"))
-    assert len(out.hits) == 1
-    assert out.hits[0].asset_id == "a2"
+    # Two hits because the segment spans both scenes (see the test above); the
+    # point here is that neither of them comes from a1.
+    assert len(out.hits) == 2
+    assert {h.asset_id for h in out.hits} == {"a2"}
 
 
 @pytest.mark.asyncio
@@ -229,8 +236,8 @@ async def test_hybrid_search_can_skip_query_vector_encoding(
     out = await handle_search(SearchInput(query="multimodal", mode="hybrid"))
 
     assert not called
-    assert len(out.hits) == 1
-    assert out.hits[0].asset_id == "a1"
+    assert len(out.hits) == 2  # spanning segment, see the fts test above
+    assert {h.asset_id for h in out.hits} == {"a1"}
 
 
 @pytest.mark.asyncio
@@ -351,3 +358,76 @@ def test_rrf_fuse_weights_contributions_by_match_strength() -> None:
     # Adjacent ranks differ by only ~1.6% on rank alone; the 10x score gap
     # must dominate that.
     assert fused[1] > 5 * fused[2]
+
+
+@pytest.mark.asyncio
+async def test_segment_spanning_a_cut_reaches_every_scene_it_covers(
+    isolated_data_dir: Path,
+) -> None:
+    """transcript_segments.scene_id is a single FK assigned from the segment's
+    START time, so a segment crossing a cut used to be filed under the first
+    scene only and the rest were unreachable by transcript search (MM-RAG-s0l).
+
+    Measured on the reference asset: 82% of segments span >1 scene (median
+    segment 4.4s vs median scene 2.5s), and the stored FK reached 51 of 89
+    scenes while speech overlapped all 89.
+    """
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO assets (id, content_hash, source_kind) VALUES ('sp', 'hsp', 'file')"
+        )
+    _persist_scenes(
+        asset_id="sp",
+        scenes=[
+            {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0},
+            {"scene_idx": 1, "start_s": 2.0, "end_s": 4.0},
+            {"scene_idx": 2, "start_s": 4.0, "end_s": 6.0},
+            {"scene_idx": 3, "start_s": 6.0, "end_s": 8.0},
+        ],
+    )
+    # One segment of continuous speech straddling three of the four scenes.
+    _persist_segments(
+        asset_id="sp",
+        segments=[
+            {
+                "seg_idx": 0,
+                "start_s": 1.0,
+                "end_s": 5.0,
+                "text": "kangaroo telemetry across the boundary",
+                "scene_idx": 0,
+            }
+        ],
+    )
+
+    out = await handle_search(SearchInput(query="kangaroo", asset_id="sp", mode="fts"))
+
+    with connect() as conn:
+        by_idx = {
+            int(r["scene_idx"]): str(r["id"])
+            for r in conn.execute(
+                "SELECT id, scene_idx FROM scenes WHERE asset_id = 'sp'"
+            ).fetchall()
+        }
+    # Scenes 0, 1 and 2 overlap 1.0-5.0s; scene 3 (6.0-8.0s) must NOT match.
+    assert {h.scene_id for h in out.hits} == {by_idx[0], by_idx[1], by_idx[2]}
+
+
+@pytest.mark.asyncio
+async def test_fanning_out_does_not_reorder_the_stream(isolated_data_dir: Path) -> None:
+    """All scenes of one segment share that segment's rank, so a segment that
+    spans many scenes cannot demote the segments ranked after it."""
+    from mmrag.handlers.search import _rrf_fuse, _StreamHit
+
+    spanning = [
+        _StreamHit(scene_id=10, score=9.0, snippet="best", source="fts_transcript", rank_hint=0),
+        _StreamHit(scene_id=11, score=9.0, snippet="best", source="fts_transcript", rank_hint=0),
+        _StreamHit(scene_id=12, score=9.0, snippet="best", source="fts_transcript", rank_hint=0),
+        # Positionally 4th, but genuinely the 2nd-best segment.
+        _StreamHit(scene_id=20, score=3.0, snippet="next", source="fts_transcript", rank_hint=1),
+    ]
+    fused = dict((hit.scene_id, score) for score, hit, _ in _rrf_fuse([spanning], top_k=10))
+
+    # Runner-up scores as rank 1 (1/62 * 3/9), not as rank 3 (1/64 * 3/9).
+    assert fused[20] == pytest.approx((1.0 / 62) * (3.0 / 9.0))
+    # Every scene of the top segment scores identically at rank 0.
+    assert fused[10] == fused[11] == fused[12] == pytest.approx(1.0 / 61)

@@ -10,7 +10,7 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-EXPECTED_TOOLS = ("ingest", "ask", "search", "status")
+EXPECTED_TOOLS = ("ingest", "ask", "search", "densify", "status")
 DEFAULT_PUBLIC_URL = "http://127.0.0.1:8766"
 DEFAULT_MCP_PATH = "/mcp"
 DEFAULT_JOB_ID = "da7c953e-a6db-45e9-bb1e-57237f144ebe"

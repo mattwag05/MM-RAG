@@ -313,3 +313,82 @@ at query time; MM-RAG's evidence pack is consumed as-is.
 - `qwen3.5-2b-cond` was defined but not run this round — Qwen's round-1 latency/memory
   already places it behind MiniCPM for this slot, and the conditioning question was settled
   without it.
+
+---
+
+# Round 3 — Florence-2's OCR head vs Tesseract (MM-RAG-9wq)
+
+Florence-2-base is already resident in the ingest child for captioning and ships an
+`<OCR>` task head MM-RAG never uses. If it beat Tesseract, `tesseract` could stop being
+a system prerequisite. Adoption bar, set in the bead: **beat psm 3 on both real-text
+retention and noise.**
+
+## Result
+
+**Rejected.** Florence-2 `<OCR>` never returns empty — it produced text on 103/103
+frames at both resolutions — so it cannot suppress noise at all, which is the single
+property psm 3 was selected for (MM-RAG-xvg). Tesseract stays.
+
+The round also relocated the win: the extractor was never the binding constraint.
+Fixing the source resolution (MM-RAG-7rm) multiplied Tesseract's novel-token yield by
+5.3x, far more than any extractor swap was going to deliver.
+
+## Measurements
+
+103 frames, one asset (`13b96dc3`), paired on identical timestamps at both resolutions.
+Tokens are scored three ways against that asset's own ASR transcript and the system
+wordlist: *redundant* = already in the transcript (burned-in subtitles, no retrieval
+value), *novel* = a dictionary word absent from the transcript (the content OCR exists
+for), *noise* = neither.
+
+| condition        | frames with text | tokens | redundant | novel | noise | noise % | s/frame |
+|------------------|-----------------:|-------:|----------:|------:|------:|--------:|--------:|
+| tesseract @360p  |            64/103 |   1006 |       383 |   227 |   396 |   39.4% |    0.07 |
+| florence  @360p  |           103/103 |   2185 |       844 |   479 |   862 |   39.5% |    0.37 |
+| tesseract @1080p |            88/103 |   3740 |      1096 |**1198**| 1446 |**38.7%**|    0.32 |
+| florence  @1080p |           103/103 |   2319 |       704 |   633 |   982 |   42.3% |    0.50 |
+
+`tesseract @1080p` wins on every axis that matters: the most novel tokens by a factor of
+1.9 over the next best, the lowest noise share, and lower latency than either Florence
+condition. It also still empties 15 frames, i.e. it can say "nothing here".
+
+## Why "never empty" is disqualifying
+
+On the 15 frames `tesseract @1080p` emptied, Florence emitted:
+
+- `<pad>` runs with a single leading character (`-`, `pink`)
+- punctuation storms — `-------.-------.--------.-------.-.-.-.` …
+- invented URLs and version strings — `OPZYWww.opz.com.au.com-1.0.0-1-1:1.1.2.1-2.0:` …
+- correct readings of the burned-in subtitle ("whether I'm in a cafe, airport, or just
+  on the couch") — real, but redundant with ASR by construction
+
+A frame with no text has no correct non-empty answer, and Florence has no way to give
+one. Two further integration costs: the `<OCR>` head leaks `<pad>` tokens through
+`post_process_generation` in a way `<DETAILED_CAPTION>` does not, and it is 1.6–5x
+slower per frame than Tesseract.
+
+## What Tesseract @1080p actually recovers
+
+Real on-screen content that ASR can never supply, e.g. from an editor pane:
+
+> `fix bug where renaming a node changes the color of another node … resolved by
+> updating ChangeColorModal to use the node color as its default state, and not
+> resetting it to null when the modal is closed`
+
+## Artifacts
+
+- `scripts/ocr_vlm_bench.py` — the harness; `--content-hash <prefix>` plus an optional
+  `--mezzanine-1080` of the same asset to get the paired-resolution rows.
+- `scripts/ocr_resolution_bench.py` — the companion upscaling measurement (MM-RAG-7rm).
+
+## Threats to validity
+
+- One asset, 103 frames. It is a screen-recording-heavy talking-head video, which is the
+  favourable case for OCR; a corpus with no on-screen text would show smaller novel-token
+  deltas across every condition.
+- The novel/noise split leans on `/usr/share/dict/words`, which is permissive enough to
+  admit fragments like `aer` and `alo` as words. It biases *novel* upward equally for
+  every condition, so the comparison holds even though the absolute counts are generous.
+- Florence was run with the stock `<OCR>` task and no prompt tuning; a region-based
+  `<OCR_WITH_REGION>` pass plus a confidence filter was not attempted, and is the only
+  route by which this verdict might change.

@@ -58,7 +58,8 @@ Ollama process.
 ```
 ┌──────────────────────────────────┐     ┌────────────────────┐
 │ MCP server (FastMCP stdio/HTTP)  │     │ FastAPI REST       │
-│ tools: ingest/ask/search/status  │     │ /ingest /ask /...  │
+│ tools: ingest/ask/search/        │     │ /ingest /ask /...  │
+│        densify/status            │     │                    │
 └──────────────┬───────────────────┘     └─────────┬──────────┘
                │                                   │
                └─────────────┬─────────────────────┘

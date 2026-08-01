@@ -50,6 +50,27 @@ def _subtitles_from_info(info: dict) -> tuple[str, str] | None:
     return str(tracks[first]), str(first)
 
 
+def _format_selector(max_height: int) -> str:
+    """yt-dlp format string capped at ``max_height`` (MM-RAG-7rm).
+
+    The obvious-looking ``best[ext=mp4]/best`` is a trap on YouTube: ``best``
+    only considers *progressive* streams (video and audio already muxed into
+    one file), and YouTube's progressive mp4 tops out at itag 18 = 640x360.
+    Everything above that is DASH, video-only, and reachable solely through an
+    explicit ``bestvideo+bestaudio`` merge. Measured on the reference asset:
+    the old selector took 640x360 while 2160p was on offer, and at 360p the
+    on-screen text OCR exists to read is not present in the pixels at all.
+
+    ``<=?`` is the non-strict comparison — a format with no height metadata
+    stays eligible rather than dropping out of the running.
+    """
+    return (
+        f"bestvideo[height<=?{max_height}]+bestaudio/"
+        f"best[height<=?{max_height}]/"
+        "best[ext=mp4]/best"
+    )
+
+
 async def _fetch_url(source: str, dest_dir: Path) -> tuple[Path, dict]:
     """Download with yt-dlp into dest_dir. Returns (downloaded_path, info)."""
     # Imported lazily so that local-file ingest doesn't require yt-dlp at all.
@@ -62,7 +83,7 @@ async def _fetch_url(source: str, dest_dir: Path) -> tuple[Path, dict]:
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
-        "format": "best[ext=mp4]/best",
+        "format": _format_selector(get_settings().max_video_height),
         "merge_output_format": "mp4",
         "restrictfilenames": True,
     }

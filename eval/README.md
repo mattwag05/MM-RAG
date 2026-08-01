@@ -10,8 +10,23 @@ of scope until synthesis becomes an actually-used path.
 
 ```bash
 make eval        # smoke set: ingests tests/fixtures/speech.mp4, scores 3 questions
+make eval-scenes # scene-level set: 20 questions with hand-verified time_range gold
 make eval-full   # full set: fetches public URLs via yt-dlp (slow, local only)
 ```
+
+**Use `eval/scenes.jsonl` to judge a retrieval change.** `smoke.jsonl` and
+`full.jsonl` carry asset-level gold, which on a small store scores 1.000 by
+construction — they are liveness checks, not instruments. Measured side by side
+on the same store:
+
+| dataset | hybrid | hybrid_graph | fts | vector |
+|---|---|---|---|---|
+| smoke.jsonl (MRR)  | 1.000 | 1.000 | 1.000 | 0.667 |
+| scenes.jsonl (MRR) | 0.867 | 0.867 | 0.842 | 0.554 |
+
+The smoke set cannot separate hybrid from fts; the scene set can, and it was
+what exposed graph expansion being dead code (MM-RAG-gje) and gave the
+transcript-attribution fix (MM-RAG-s0l) something to be checked against.
 
 Or directly, against whatever store `MMRAG_DATA_DIR` points at:
 

@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse
 from mmrag import __version__
 from mmrag.config import get_settings
 from mmrag.handlers.ask import handle_ask
+from mmrag.handlers.densify import handle_densify
 from mmrag.handlers.ingest import handle_ingest
 from mmrag.handlers.search import handle_search
 from mmrag.handlers.status import JobNotFound, handle_status
@@ -16,6 +17,8 @@ from mmrag.logging import configure_logging
 from mmrag.models.mcp_io import (
     AskInput,
     AskOutput,
+    DensifyInput,
+    DensifyOutput,
     IngestInput,
     IngestOutput,
     SearchInput,
@@ -77,10 +80,18 @@ def _register_tools(server: FastMCP) -> None:
         source: str,
         wait_ms: int = 30000,
         push_to_sbt: bool = False,
+        profile: str = "full",
     ) -> dict:
         """Ingest a public URL or local file. Sync-if-fast (within wait_ms),
-        async-if-slow. Returns a job_id you can poll with `status`."""
-        inp = IngestInput(source=source, wait_ms=wait_ms, push_to_sbt=push_to_sbt)
+        async-if-slow. Returns a job_id you can poll with `status`.
+
+        profile="transcript_only" skips frame sampling, OCR, and captioning —
+        much faster and lighter, at the cost of any visual evidence. Use it for
+        bulk ingestion where the spoken content is what you care about; use the
+        default "full" when you may want to look at what is on screen."""
+        inp = IngestInput(
+            source=source, wait_ms=wait_ms, push_to_sbt=push_to_sbt, profile=profile
+        )
         out: IngestOutput = await handle_ingest(inp)
         return out.model_dump()
 
@@ -98,7 +109,12 @@ def _register_tools(server: FastMCP) -> None:
         whole library). By default returns retrieved evidence only; set
         synthesize=true to ask the configured reasoning backend for an answer.
         Set include_frames=true to get local frame JPEG paths on each evidence
-        item so you can look at the retrieved moments yourself."""
+        item so you can look at the retrieved moments yourself.
+
+        Evidence items may carry coverage_note when the scene behind them is
+        thinly sampled for its duration — treat that as "the pipeline only
+        looked once here", not as "there is nothing here", and call `densify`
+        on that range if the visual detail matters to the answer."""
         inp = AskInput(
             question=question,
             asset_id=asset_id,
@@ -121,7 +137,19 @@ def _register_tools(server: FastMCP) -> None:
         include_frames: bool = False,
     ) -> dict:
         """Search transcripts, OCR, document content, and optional graph context.
-        Set include_frames=true to get local frame JPEG paths on each hit."""
+
+        Query phrasing matters per mode. mode="fts" is keyword matching, so
+        use the words you expect to be spoken or on screen. mode="vector" and
+        the visual half of "hybrid" match a SigLIP text tower against frame
+        images, which was trained on declarative image captions — so phrase
+        those as a description of the scene you want ("a person writing on a
+        whiteboard") rather than as a question ("where do they explain the
+        diagram?"). Questions retrieve worse than descriptions here.
+
+        Set include_frames=true to get local frame JPEG paths on each hit.
+        A hit may carry coverage_note when its scene is thinly sampled for its
+        duration; that is the signal to call `densify` on that time range
+        before concluding there is nothing there."""
         inp = SearchInput(
             query=query,
             asset_id=asset_id,
@@ -131,6 +159,28 @@ def _register_tools(server: FastMCP) -> None:
             include_frames=include_frames,
         )
         out: SearchOutput = await handle_search(inp)
+        return out.model_dump()
+
+    @server.tool()
+    async def densify(
+        asset_id: str,
+        time_range: list[float],
+        interval_s: float = 0.5,
+        wait_ms: int = 60000,
+    ) -> dict:
+        """Re-sample an already-ingested time range at higher frame density.
+
+        Use after `search` or `ask` localizes a moment and the evidence is too
+        coarse to answer from: this extracts frames every interval_s seconds
+        across the range, OCRs and embeds them, and writes them into the same
+        index. Re-run your query afterwards to see the new frames."""
+        inp = DensifyInput(
+            asset_id=asset_id,
+            time_range=(time_range[0], time_range[-1]),
+            interval_s=interval_s,
+            wait_ms=wait_ms,
+        )
+        out: DensifyOutput = await handle_densify(inp)
         return out.model_dump()
 
     @server.tool()
@@ -176,7 +226,7 @@ def _register_discovery_route(
                     if token_required
                     else {"type": "none"}
                 ),
-                "tools": ["ingest", "ask", "search", "status"],
+                "tools": ["ingest", "ask", "search", "densify", "status"],
             }
         )
 

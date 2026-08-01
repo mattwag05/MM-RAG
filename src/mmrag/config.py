@@ -47,6 +47,28 @@ class Settings(BaseSettings):
     # Fetch manual platform caption tracks and use them instead of ASR when
     # present (MM-RAG-8vj). Auto-captions are never fetched.
     subtitles_enabled: bool = True
+    # Height ceiling for downloaded video (MM-RAG-7rm). On-screen text is
+    # unreadable below ~720p — at 360p the pixels simply do not carry it — so
+    # this is the lever that decides what OCR and captioning can ever see.
+    # Lower it for bandwidth- or CPU-constrained deployments; raise it only if
+    # you are prepared to pay the transcode and per-frame cost.
+    max_video_height: int = 1080
+    # Backend for the opt-in synthesize=true path (MM-RAG-thx). "ollama" talks
+    # to MMRAG_OLLAMA_URL; "minicpm" loads MiniCPM-V-4.6 locally and can reason
+    # over retrieved frame JPEGs as well as the evidence text. Neither runs
+    # unless a caller passes synthesize=true.
+    # WARNING: "minicpm" needs ~5.9 GB resident — do not enable it on an edge
+    # box. See src/mmrag/providers/minicpm.py.
+    synthesize_provider: str = "ollama"
+    # Model repo for synthesize_provider="minicpm". Configurable so a smaller
+    # or quantized variant is a config change, not a code change. Note that on
+    # Apple silicon the only practical 4-bit route is MLX (mlx-community/*),
+    # which needs the mlx-vlm runtime rather than transformers — see the
+    # provider docstring before pointing this at one.
+    synthesize_model: str = "openbmb/MiniCPM-V-4_6"
+    # Frames handed to a vision-capable synthesize backend. Peak memory scales
+    # with image count, so this is a memory guard, not a quality knob.
+    synthesize_max_frames: int = 4
     query_vector_enabled: bool = True
     vector_backend: str = "sqlite"
     qdrant_url: str | None = None

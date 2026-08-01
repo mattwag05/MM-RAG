@@ -90,12 +90,18 @@ async def test_discovery_route_returns_mcp_resource_metadata():
     assert payload["mcp_url"] == "http://mmrag.tailnet:8766/mcp"
     assert payload["auth"]["type"] == "bearer"
     assert payload["auth"]["scope"] == "mmrag:mcp"
-    assert payload["tools"] == ["ingest", "ask", "search", "status"]
+    assert payload["tools"] == ["ingest", "ask", "search", "densify", "status"]
 
 
 def test_mcp_tool_registration_stays_four_tool_surface():
     server = create_mcp_server()
-    assert set(server._tool_manager._tools) == {"ingest", "ask", "search", "status"}
+    assert set(server._tool_manager._tools) == {
+        "ingest",
+        "ask",
+        "search",
+        "densify",
+        "status",
+    }
 
 
 def test_mcp_ask_tool_exposes_time_range_parameter():

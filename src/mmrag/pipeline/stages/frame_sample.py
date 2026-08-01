@@ -13,6 +13,10 @@ Runs of near-identical frames within a scene (held slides, static shots)
 are deduplicated by 16x16 grayscale MAD before OCR/caption/embed pay for
 them — see ``_drop_near_duplicates`` for why the comparison is
 temporal-chain rather than all-pairs (MM-RAG-mdn).
+
+A caller can supply an explicit ``plan`` instead of scenes to sample a
+chosen set of timestamps at a chosen ``frame_idx`` base — that is the
+densify path (MM-RAG-nwk).
 """
 
 from __future__ import annotations
@@ -133,8 +137,17 @@ async def frame_sample(
     scenes: list[dict],
     assets_dir: Path,
     content_hash: str,
+    plan: list[dict] | None = None,
 ) -> dict:
-    if mezzanine_path is None or not scenes:
+    """Sample frames for ``scenes``, or for an explicit ``plan``.
+
+    A plan entry is ``{"scene_idx", "frame_idx_start", "times"}`` and replaces
+    the scene-derived schedule entirely. That is how the densify handler asks
+    for a denser second pass over an already-ingested range: it computes the
+    timestamps (and a non-colliding ``frame_idx`` base) against the DB, where
+    the existing rows live, and this stage stays free of DB access.
+    """
+    if mezzanine_path is None or not (plan or scenes):
         return {"frames": []}
     if not Path(mezzanine_path).exists():
         log.warning("mezzanine_missing", path=mezzanine_path)
@@ -143,15 +156,27 @@ async def frame_sample(
     frames_dir = Path(assets_dir) / content_hash / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
 
+    if plan is not None:
+        schedule = [
+            (int(e["scene_idx"]), int(e.get("frame_idx_start", 0)), [float(t) for t in e["times"]])
+            for e in plan
+        ]
+    else:
+        schedule = [
+            (
+                int(s["scene_idx"]),
+                0,
+                _sample_times(float(s["start_s"]), float(s["end_s"])),
+            )
+            for s in scenes
+        ]
+
     out: list[dict] = []
     n_deduped = 0
-    for scene in scenes:
-        scene_idx = int(scene["scene_idx"])
-        start_s = float(scene["start_s"])
-        end_s = float(scene["end_s"])
-        times = _sample_times(start_s, end_s)
+    for scene_idx, frame_idx_start, times in schedule:
         candidates: list[dict] = []
-        for frame_idx, t_s in enumerate(times):
+        for offset, t_s in enumerate(times):
+            frame_idx = frame_idx_start + offset
             out_path = frames_dir / f"{scene_idx:04d}_{frame_idx:02d}.jpg"
             try:
                 await _write_one_frame(mezzanine_path, t_s, out_path)
@@ -173,6 +198,9 @@ async def frame_sample(
 
         # Drop near-identical frame runs (held slides, static shots) before
         # OCR/caption/embed pay for them (MM-RAG-mdn).
+        # ponytail: on a densify pass this only compares the NEW candidates,
+        # so a dense frame can duplicate one the original pass already kept.
+        # Compare against the existing frames' thumbs if that waste shows up.
         kept, dropped = _drop_near_duplicates(candidates)
         n_deduped += dropped
         kept_paths = {c["path"] for c in kept}

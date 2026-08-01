@@ -14,6 +14,12 @@ class VectorHit:
     source: str
     snippet: str | None = None
     frame_id: int | None = None
+    # Transcript hits carry their segment's asset and timing so the search
+    # handler can attribute them to every scene they overlap, not just the one
+    # the stored FK points at (MM-RAG-s0l).
+    asset_id: str | None = None
+    start_s: float | None = None
+    end_s: float | None = None
 
 
 class VectorBackend(Protocol):
@@ -99,6 +105,9 @@ class SqliteVecBackend:
     ) -> list[VectorHit]:
         sql = """
             SELECT ts.scene_id AS scene_id,
+                   ts.asset_id AS asset_id,
+                   ts.start_s  AS start_s,
+                   ts.end_s    AS end_s,
                    ts.text     AS text,
                    vt.distance AS distance
               FROM vec_transcript vt
@@ -121,15 +130,18 @@ class SqliteVecBackend:
             rows = conn.execute(sql, params).fetchall()
         out: list[VectorHit] = []
         for row in rows:
-            if row["scene_id"] is None:
-                continue
+            # A NULL scene_id is no longer fatal: the handler re-attributes by
+            # time overlap, so the segment is still reachable (MM-RAG-s0l).
             text = row["text"] or ""
             out.append(
                 VectorHit(
-                    scene_id=int(row["scene_id"]),
+                    scene_id=int(row["scene_id"]) if row["scene_id"] is not None else None,
                     score=_cosine(float(row["distance"])),
                     snippet=text[:80] + ("…" if len(text) > 80 else ""),
                     source="vec_transcript",
+                    asset_id=row["asset_id"],
+                    start_s=float(row["start_s"]) if row["start_s"] is not None else None,
+                    end_s=float(row["end_s"]) if row["end_s"] is not None else None,
                 )
             )
         return out

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from mmrag.config import get_settings
 from mmrag.db.connection import connect
 from mmrag.logging import get_logger
 from mmrag.models.mcp_io import AskInput, AskOutput, Evidence, SearchInput, SearchOutput
-from mmrag.providers.base import GenerateConfig, Message
+from mmrag.providers.base import GenerateConfig, Message, ModelProvider
 
 log = get_logger("handler.ask")
 
@@ -59,6 +61,7 @@ def _hit_to_evidence(hit, summaries: dict[str, str], captions: dict[str, str]) -
     ocr_snippet = snippet if hit.source_stream in {"fts_scenes", "vec_frames"} else None
     return Evidence(
         frame_path=hit.frame_path,
+        coverage_note=hit.coverage_note,
         caption=captions.get(hit.scene_id),
         asset_id=hit.asset_id,
         content_item_id=hit.content_item_id,
@@ -112,16 +115,54 @@ def _evidence_prompt(question: str, evidence: list[Evidence]) -> list[Message]:
     ]
 
 
-async def _generate_answer(inp: AskInput, evidence: list[Evidence]) -> str:
+def _frame_bytes(evidence: list[Evidence], limit: int) -> list[bytes]:
+    """Read up to ``limit`` distinct evidence frame JPEGs off disk.
+
+    Only populated when the caller passed include_frames — otherwise
+    frame_path is None everywhere and this returns nothing, which is the
+    text-only behaviour every provider already handled.
+    """
+    out: list[bytes] = []
+    seen: set[str] = set()
+    for ev in evidence:
+        if len(out) >= limit:
+            break
+        path = ev.frame_path
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        try:
+            out.append(Path(path).read_bytes())
+        except OSError as e:
+            log.warning("ask.frame_unreadable", path=path, error=str(e))
+    return out
+
+
+def _provider() -> ModelProvider:
+    settings = get_settings()
+    if settings.synthesize_provider == "minicpm":
+        from mmrag.providers.minicpm import MiniCPMProvider
+
+        return MiniCPMProvider()
     from mmrag.providers.ollama import OllamaProvider
 
+    return OllamaProvider(settings.ollama_url)
+
+
+async def _generate_answer(inp: AskInput, evidence: list[Evidence]) -> str:
     settings = get_settings()
-    provider = OllamaProvider(settings.ollama_url)
+    provider = _provider()
+    messages = _evidence_prompt(inp.question, evidence)
+    if settings.synthesize_provider == "minicpm":
+        # Hand the retrieved frames to a vision-capable backend so it can look
+        # at the moment rather than only read about it (MM-RAG-thx). Ollama's
+        # text chat path ignores images, so this stays scoped to the backend
+        # that uses them.
+        images = _frame_bytes(evidence, settings.synthesize_max_frames)
+        if images:
+            messages[-1].images = images
     chunks: list[str] = []
-    async for chunk in provider.generate(
-        _evidence_prompt(inp.question, evidence),
-        GenerateConfig(model=inp.model),
-    ):
+    async for chunk in provider.generate(messages, GenerateConfig(model=inp.model)):
         chunks.append(chunk.delta)
     return "".join(chunks).strip()
 

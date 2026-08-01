@@ -10,7 +10,13 @@ from mmrag.db.connection import connect, transaction
 from mmrag.db.content_items import replace_content_items_for_asset, rewrite_content_items_for_asset
 from mmrag.logging import get_logger
 from mmrag.models.content_item import ContentItem
-from mmrag.models.job import M1_STAGE_ORDER, JobStatus, Stage
+from mmrag.models.job import (
+    DENSIFY_STAGE_ORDER,
+    M1_STAGE_ORDER,
+    TRANSCRIPT_ONLY_STAGE_ORDER,
+    JobStatus,
+    Stage,
+)
 from mmrag.pipeline.stages.caption import caption
 from mmrag.pipeline.stages.document import DocumentIngestError, ingest_document
 from mmrag.pipeline.stages.embed import embed
@@ -672,6 +678,7 @@ async def _run_stage(stage: Stage, state: dict) -> dict:
             scenes=state.get("scenes", []),
             assets_dir=settings.assets_dir,
             content_hash=content_hash,
+            plan=state.get("densify_plan"),
         )
     if stage is Stage.OCR:
         if state.get("is_document"):
@@ -709,6 +716,20 @@ async def _run_stage(stage: Stage, state: dict) -> dict:
     raise ValueError(f"unknown stage: {stage}")
 
 
+def _stage_order(state: dict) -> tuple[Stage, ...]:
+    """Which stages this job runs, decided entirely by its pipeline state.
+
+    Keeping the shape in the state rather than a jobs column means a new
+    profile needs no migration, and resume works unchanged: the loop keys off
+    stage *names*, so a job that crashed mid-run resumes into the same order.
+    """
+    if state.get("densify"):
+        return DENSIFY_STAGE_ORDER
+    if state.get("profile") == "transcript_only":
+        return TRANSCRIPT_ONLY_STAGE_ORDER
+    return M1_STAGE_ORDER
+
+
 async def run_pipeline(job_id: str) -> None:
     """Execute all stages for a job, persisting state after each.
 
@@ -724,16 +745,16 @@ async def run_pipeline(job_id: str) -> None:
     state: dict = json.loads(row["pipeline_state_json"] or "{}")
     state.setdefault("source", row["source"])
     state["__job_id"] = job_id
+    densify = bool(state.get("densify"))
+    stage_order = _stage_order(state)
     last_completed = state.get("last_completed_stage") or row["stage"]
     completed_stage = Stage(last_completed) if last_completed else Stage.QUEUED
-    completed_idx = (
-        M1_STAGE_ORDER.index(completed_stage) if completed_stage in M1_STAGE_ORDER else -1
-    )
+    completed_idx = stage_order.index(completed_stage) if completed_stage in stage_order else -1
     push_to_sbt = bool(row["push_to_sbt"])
 
     try:
-        n_stages = len(M1_STAGE_ORDER)
-        for idx, stage in enumerate(M1_STAGE_ORDER):
+        n_stages = len(stage_order)
+        for idx, stage in enumerate(stage_order):
             _refresh_lease(job_id, runner_id)
             # Resume past completed stages.
             already_completed = completed_idx >= idx
@@ -830,7 +851,11 @@ async def run_pipeline(job_id: str) -> None:
                     scene_id_by_idx=scene_id_by_idx,
                     segment_id_by_idx=segment_id_by_idx,
                     frame_vectors=state.get("frame_vectors", []),
-                    scene_vectors=state.get("scene_vectors", []),
+                    # A densify pass embeds only the new frames, so its
+                    # mean-pooled scene vector covers a sub-window of the
+                    # scene. Writing it would degrade vec_scenes; the frame
+                    # vectors are what densify exists to add.
+                    scene_vectors=[] if densify else state.get("scene_vectors", []),
                     segment_vectors=state.get("segment_vectors", []),
                 )
             elif (

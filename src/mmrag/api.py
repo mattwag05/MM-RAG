@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from mmrag import __version__
 from mmrag.db.connection import connect
 from mmrag.handlers.ask import handle_ask
+from mmrag.handlers.densify import handle_densify
 from mmrag.handlers.ingest import handle_ingest
 from mmrag.handlers.search import handle_search
 from mmrag.handlers.status import JobNotFound, handle_status
@@ -16,6 +17,8 @@ from mmrag.logging import configure_logging
 from mmrag.models.mcp_io import (
     AskInput,
     AskOutput,
+    DensifyInput,
+    DensifyOutput,
     IngestInput,
     IngestOutput,
     SearchInput,
@@ -51,6 +54,11 @@ async def ask_endpoint(inp: AskInput) -> AskOutput:
 @app.post("/search", response_model=SearchOutput)
 async def search_endpoint(inp: SearchInput) -> SearchOutput:
     return await handle_search(inp)
+
+
+@app.post("/densify", response_model=DensifyOutput)
+async def densify_endpoint(inp: DensifyInput) -> DensifyOutput:
+    return await handle_densify(inp)
 
 
 @app.get("/jobs/{job_id}", response_model=StatusOutput)
