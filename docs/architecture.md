@@ -142,7 +142,7 @@ completed, and re-ingesting the same source under a different URL is a no-op
 assets(id, content_hash UNIQUE, source_url, source_kind, title,
        duration_s, fps, width, height,
        mezzanine_path, audio_path, ingested_at, metadata_json)
-jobs(id, asset_id?, source, push_to_sbt, status, stage, progress,
+jobs(id, asset_id?, source, status, stage, progress,
      retries, error_kind, error_message, wait_ms,
      pipeline_state_json, created_at, updated_at)
 ```
@@ -156,9 +156,9 @@ and `edges`. Each lives in its own numbered SQL file under
 ## MCP tool surface
 
 ```
-ingest(source, wait_ms=30000, push_to_sbt=False)
+ingest(source, wait_ms=30000, profile="full")
 ask(question, asset_id=None, time_range=None, top_k=5,
-    synthesize=False, model="gemma4:e4b")
+    synthesize=False, model=None)
 search(query, asset_id=None, time_range=None, top_k=10,
        mode="hybrid"|"vector"|"fts"|"hybrid_graph")
 status(job_id)
@@ -174,7 +174,8 @@ items, scenes, frames, segments, and topics. `ask` additionally returns an
 optional `answer: str | None` and a `confidence` field — `answer` is only
 populated when the caller passes `synthesize=True`. This keeps the core contract evidence-first and
 matches the PMF thesis that edge agents
-([agent], [agent], Kit, Claude Code) already have their own LLMs and prefer
+(Claude Code, Claude Desktop, self-hosted assistants) already have their own
+LLMs and prefer
 retrieved evidence packs to yet another inference layer.
 
 REST-only (not exposed to MCP clients): `reindex`, `retry`,
@@ -213,7 +214,7 @@ MM-RAG deploys from a checkout on the server via `docker-compose.pi.yml`.
 | Published services | MCP HTTP only; REST is not exposed by the Pi stack |
 
 The discovery document advertises `transport=streamable-http`, bearer
-auth metadata, and exactly the four MCP tools: `ingest`, `ask`, `search`, and
+auth metadata, and exactly the five MCP tools: `ingest`, `ask`, `search`, `densify`, and
 `status`. `mmrag-init` applies SQLite migrations once, then `mmrag-mcp` and
 `mmrag-worker` stay up as the long-running services. A Docker stop/restart
 probe validated that worker SIGTERM releases active job leases so interrupted
@@ -264,7 +265,8 @@ the full rationale behind the current milestone ordering.
 - **M6** **(shipped)** brings the Raspberry Pi deploy path. The image
   includes M3 visual runtime deps and the Compose stack exposes MCP HTTP +
   worker without bundling Gemma 4 or Ollama.
-- **M7 client side** ships the optional SBT push path from MM-RAG. Full
-  reference-consumer validation remains pending until the SBT receiver app,
-  schema, and FTS behavior are available for an end-to-end smoke.
+- **M7 is dropped.** The reference-consumer push client was removed in
+  MM-RAG-rrh: its receiver was never locatable, so the path was never
+  validated end to end, and an app-specific integration cannot ship in a
+  repo destined to be a generic plugin. Migration 0010 drops the column.
 - **post-v1**: bundled reasoning `[reasoning]` extra (`MM-RAG-rif`).

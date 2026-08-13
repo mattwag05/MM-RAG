@@ -161,8 +161,11 @@ async def _generate_answer(inp: AskInput, evidence: list[Evidence]) -> str:
         images = _frame_bytes(evidence, settings.synthesize_max_frames)
         if images:
             messages[-1].images = images
+    # inp.model is optional; fall back to the configured default. MiniCPM
+    # ignores this and loads settings.synthesize_model regardless.
+    model = inp.model or settings.model_primary
     chunks: list[str] = []
-    async for chunk in provider.generate(messages, GenerateConfig(model=inp.model)):
+    async for chunk in provider.generate(messages, GenerateConfig(model=model)):
         chunks.append(chunk.delta)
     return "".join(chunks).strip()
 

@@ -25,7 +25,6 @@ class TestIngest:
     def test_minimal_input(self) -> None:
         inp = IngestInput(source="tests/fixtures/sample.mp4")
         assert inp.wait_ms == 30000
-        assert inp.push_to_sbt is False
 
     def test_unknown_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -84,8 +83,16 @@ class TestAsk:
     def test_minimal_input(self) -> None:
         inp = AskInput(question="what?")
         assert inp.top_k == 5
-        assert inp.model == "gemma4:e4b"
+        assert inp.model is None
         assert inp.synthesize is False
+
+    def test_model_is_free_form_not_a_gemma_literal(self) -> None:
+        # The schema must not advertise a fixed set of Ollama tags: the backend
+        # is chosen by MMRAG_SYNTHESIZE_PROVIDER, so any provider's model id has
+        # to be expressible here (docs/pmf-rethink.md).
+        assert AskInput(question="what?", model="openbmb/MiniCPM-V-4_6").model == (
+            "openbmb/MiniCPM-V-4_6"
+        )
 
     def test_reversed_time_range_rejected(self) -> None:
         with pytest.raises(ValidationError):

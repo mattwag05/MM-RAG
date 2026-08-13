@@ -79,7 +79,6 @@ def _register_tools(server: FastMCP) -> None:
     async def ingest(
         source: str,
         wait_ms: int = 30000,
-        push_to_sbt: bool = False,
         profile: str = "full",
     ) -> dict:
         """Ingest a public URL or local file. Sync-if-fast (within wait_ms),
@@ -89,9 +88,7 @@ def _register_tools(server: FastMCP) -> None:
         much faster and lighter, at the cost of any visual evidence. Use it for
         bulk ingestion where the spoken content is what you care about; use the
         default "full" when you may want to look at what is on screen."""
-        inp = IngestInput(
-            source=source, wait_ms=wait_ms, push_to_sbt=push_to_sbt, profile=profile
-        )
+        inp = IngestInput(source=source, wait_ms=wait_ms, profile=profile)
         out: IngestOutput = await handle_ingest(inp)
         return out.model_dump()
 
@@ -101,7 +98,7 @@ def _register_tools(server: FastMCP) -> None:
         asset_id: str | None = None,
         time_range: list[float] | None = None,
         top_k: int = 5,
-        model: str = "gemma4:e4b",
+        model: str | None = None,
         synthesize: bool = False,
         include_frames: bool = False,
     ) -> dict:

@@ -26,15 +26,14 @@ def _create_job(inp: IngestInput) -> str:
         conn.execute(
             """
             INSERT INTO jobs (
-                id, source, push_to_sbt,
+                id, source,
                 status, stage, progress, wait_ms, pipeline_state_json
             )
-            VALUES (?, ?, ?, 'queued', 'queued', 0.0, ?, ?)
+            VALUES (?, ?, 'queued', 'queued', 0.0, ?, ?)
             """,
             (
                 job_id,
                 inp.source,
-                int(inp.push_to_sbt),
                 inp.wait_ms,
                 json.dumps(state),
             ),

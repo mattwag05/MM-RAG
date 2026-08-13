@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     model_primary: str = "gemma4:e4b"
     model_fallback: str = "gemma4:e2b"
-    sbt_url: str | None = None
     api_host: str = "127.0.0.1"
     api_port: int = 8765
     mcp_host: str = "127.0.0.1"

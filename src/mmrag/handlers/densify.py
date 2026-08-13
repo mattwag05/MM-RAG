@@ -136,10 +136,10 @@ def _create_job(asset: dict, plan: list[dict], wait_ms: int) -> str:
         conn.execute(
             """
             INSERT INTO jobs (
-                id, asset_id, source, push_to_sbt,
+                id, asset_id, source,
                 status, stage, progress, wait_ms, pipeline_state_json
             )
-            VALUES (?, ?, ?, 0, 'queued', 'queued', 0.0, ?, ?)
+            VALUES (?, ?, ?, 'queued', 'queued', 0.0, ?, ?)
             """,
             (
                 job_id,

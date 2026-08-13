@@ -19,10 +19,21 @@ make eval-full   # full set: fetches public URLs via yt-dlp (slow, local only)
 construction — they are liveness checks, not instruments. Measured side by side
 on the same store:
 
-| dataset | hybrid | hybrid_graph | fts | vector |
-|---|---|---|---|---|
-| smoke.jsonl (MRR)  | 1.000 | 1.000 | 1.000 | 0.667 |
-| scenes.jsonl (MRR) | 0.867 | 0.867 | 0.842 | 0.554 |
+| dataset | metric | hybrid | hybrid_graph | fts | vector |
+|---|---|---|---|---|---|
+| smoke.jsonl  | MRR       | 1.000 | 1.000 | 1.000 | 0.667 |
+| scenes.jsonl | MRR       | 0.867 | 0.867 | 0.842 | 0.554 |
+| scenes.jsonl | recall@10 | 1.000 | 1.000 | 0.950 | 0.850 |
+| scenes.jsonl | prec@10   | 0.295 | **0.270** | 0.410 | 0.280 |
+
+**Report precision alongside MRR, or you will misread hybrid_graph.** MRR is
+the one metric on which hybrid and hybrid_graph tie, so an MRR-only table makes
+graph expansion look inert when it is not: it is live, it changes the result
+set, and it changes it for the worse (precision 0.295 → 0.270 for ~2 ms of
+added latency, no recall or MRR gain). Re-measured 2026-08-13 (MM-RAG-t0g),
+matching the numbers in the `handlers/search.py` docstring. The cause is that
+graph topic nodes are regex tokens, so stopwords and OCR misreads (`ghatgpt`,
+`spotfy-`) are first-class entities.
 
 The smoke set cannot separate hybrid from fts; the scene set can, and it was
 what exposed graph expansion being dead code (MM-RAG-gje) and gave the
