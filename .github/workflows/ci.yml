@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # ruff needs no runtime deps and the dev extra pulls nothing heavy, so
+      # this job never installs torch.
+      - name: Install dev deps
+        run: uv sync --frozen --extra dev
+
+      # `make lint` covers only src and tests; scripts/ is linted here too
+      # because nothing else covers it.
+      - name: ruff check
+        run: uv run --frozen --extra dev ruff check src tests scripts
+
+      - name: ruff format --check
+        run: uv run --frozen --extra dev ruff format --check src tests scripts
+
+  test:
+    name: pytest (m3-visual, cpu torch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mirrors the Dockerfile's runtime deps. espeak-ng is the one addition:
+      # tests/conftest.py builds the speech fixture with `say` on macOS and
+      # falls back to espeak-ng on Linux, skipping those tests without either.
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg libgl1 libglib2.0-0 libgomp1 tesseract-ocr espeak-ng
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # The m3_visual tests run real SigLIP inference rather than mocks, so the
+      # weights are a hard input to the run: SigLIP ~780 MB, Florence-2 ~469 MB,
+      # Parakeet ~640 MB, all fetched on first use.
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: hf-${{ runner.os }}-
+
+      # Same install path as the Dockerfile: resolve from the lock, then
+      # install against the CPU torch index. A plain `uv sync` would pull the
+      # default Linux torch wheel (526 MB) plus ~15 nvidia CUDA packages that
+      # this project never uses -- Mac is MPS, the Pi/container target is CPU.
+      - name: Install (locked, cpu torch)
+        run: |
+          uv venv .venv
+          uv export --quiet --frozen --extra dev --extra m3-visual \
+            --no-emit-project --no-hashes --output-file constraints.txt
+          uv pip install --python .venv/bin/python --torch-backend cpu \
+            --constraints constraints.txt -e ".[dev,m3-visual]"
+
+      # Called directly rather than through `uv run`, which would re-sync the
+      # environment to the default index and undo the CPU torch install.
+      - name: Run tests
+        run: .venv/bin/python -m pytest -q --junit-xml=junit.xml
+
+      # A skip on this job means the m3-visual extra failed to install, not
+      # that the visual path is untestable. Zero skips is the contract here.
+      - name: Assert no tests were skipped
+        run: |
+          .venv/bin/python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suites = list(ET.parse("junit.xml").getroot().iter("testsuite"))
+          total = sum(int(s.get("tests", 0)) for s in suites)
+          skipped = sum(int(s.get("skipped", 0)) for s in suites)
+          print(f"{total} tests, {skipped} skipped")
+          if skipped:
+              sys.exit(
+                  f"{skipped} test(s) skipped; expected 0 with the m3-visual extra installed"
+              )
+          PY
