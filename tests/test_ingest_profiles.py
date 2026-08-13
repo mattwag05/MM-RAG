@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -87,9 +88,16 @@ async def test_transcript_only_still_supports_transcript_search(
             (result.asset_id,),
         ).fetchone()["n"]
     assert n_segments >= 1
-    # EMBED is kept in the profile precisely so vector-mode transcript search
-    # keeps working; this is the assertion that would catch dropping it.
-    assert n_seg_vecs >= 1
+    if importlib.util.find_spec("open_clip") is not None:
+        # EMBED is kept in the profile precisely so vector-mode transcript
+        # search keeps working; this is the assertion that would catch
+        # dropping it.
+        assert n_seg_vecs >= 1
+    else:
+        # Core-only install: EMBED degrades to no vectors rather than failing
+        # the job (MM-RAG-bdi). The FTS assertion below is what still has to
+        # hold, and it is the whole point of the profile on that install.
+        assert n_seg_vecs == 0
 
     out = await handle_search(
         SearchInput(query=SPEECH_PHRASE.split()[0], asset_id=result.asset_id, top_k=5)
