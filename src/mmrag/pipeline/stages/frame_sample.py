@@ -22,9 +22,11 @@ densify path (MM-RAG-nwk).
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from pathlib import Path
 
 from mmrag.logging import get_logger
+from mmrag.pipeline.m3_errors import M3ExtraMissingError
 from mmrag.pipeline.subprocess_util import run
 
 log = get_logger("stage.frame_sample")
@@ -149,6 +151,12 @@ async def frame_sample(
     """
     if mezzanine_path is None or not (plan or scenes):
         return {"frames": []}
+    # Pillow is only reachable through the m3-visual extra, and every sampled
+    # frame goes through it for dedup and dimensions. Fail here with the typed
+    # error and its install hint rather than deep in a to_thread call with a
+    # bare ModuleNotFoundError (MM-RAG-bdi).
+    if importlib.util.find_spec("PIL") is None:
+        raise M3ExtraMissingError(stage="frame_sample")
     if not Path(mezzanine_path).exists():
         log.warning("mezzanine_missing", path=mezzanine_path)
         return {"frames": []}

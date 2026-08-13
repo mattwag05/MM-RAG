@@ -16,6 +16,7 @@ import asyncio
 from typing import Any
 
 from mmrag.logging import get_logger
+from mmrag.pipeline.m3_errors import M3ExtraMissingError
 
 log = get_logger("stage.embed")
 
@@ -41,7 +42,10 @@ def _load_model() -> tuple[Any, Any, Any]:
     if _MODEL is not None:
         return _MODEL, _PREPROCESS, _TOKENIZER
 
-    import open_clip
+    try:
+        import open_clip
+    except ImportError as e:
+        raise M3ExtraMissingError(stage="embed") from e
 
     log.info("embed.model_load", model=_MODEL_NAME)
     model, _, preprocess = open_clip.create_model_and_transforms(_MODEL_NAME)
@@ -59,8 +63,11 @@ def _load_model() -> tuple[Any, Any, Any]:
 
 
 def _encode_images_sync(paths: list[str]) -> list[list[float]]:
-    import torch
-    from PIL import Image
+    try:
+        import torch
+        from PIL import Image
+    except ImportError as e:
+        raise M3ExtraMissingError(stage="embed") from e
 
     model, preprocess, _ = _load_model()
     out: list[list[float]] = []
@@ -81,7 +88,10 @@ def _encode_images_sync(paths: list[str]) -> list[list[float]]:
 
 
 def _encode_texts_sync(texts: list[str]) -> list[list[float]]:
-    import torch
+    try:
+        import torch
+    except ImportError as e:
+        raise M3ExtraMissingError(stage="embed") from e
 
     model, _, tokenizer = _load_model()
     out: list[list[float]] = []
@@ -131,29 +141,49 @@ async def embed(
     scene_vectors: list[dict] = []
     segment_vectors: list[dict] = []
 
-    if frames:
-        paths = [f["path"] for f in frames]
-        vecs = await asyncio.to_thread(_encode_images_sync, paths)
-        for f, v in zip(frames, vecs, strict=True):
-            frame_vectors.append(
-                {
-                    "scene_idx": int(f["scene_idx"]),
-                    "frame_idx": int(f["frame_idx"]),
-                    "vector": v,
-                }
-            )
-        scene_vectors = _mean_pool_scene_vectors(frame_vectors)
+    try:
+        if frames:
+            paths = [f["path"] for f in frames]
+            vecs = await asyncio.to_thread(_encode_images_sync, paths)
+            for f, v in zip(frames, vecs, strict=True):
+                frame_vectors.append(
+                    {
+                        "scene_idx": int(f["scene_idx"]),
+                        "frame_idx": int(f["frame_idx"]),
+                        "vector": v,
+                    }
+                )
+            scene_vectors = _mean_pool_scene_vectors(frame_vectors)
 
-    if segments:
-        texts = [s["text"] for s in segments]
-        vecs = await asyncio.to_thread(_encode_texts_sync, texts)
-        for s, v in zip(segments, vecs, strict=True):
-            segment_vectors.append(
-                {
-                    "seg_idx": int(s["seg_idx"]),
-                    "vector": v,
-                }
-            )
+        if segments:
+            texts = [s["text"] for s in segments]
+            vecs = await asyncio.to_thread(_encode_texts_sync, texts)
+            for s, v in zip(segments, vecs, strict=True):
+                segment_vectors.append(
+                    {
+                        "seg_idx": int(s["seg_idx"]),
+                        "vector": v,
+                    }
+                )
+    except M3ExtraMissingError:
+        # Degrade rather than fail the job (MM-RAG-bdi). A core-only install has
+        # no SigLIP, so there is no vector stream to write — but FTS over
+        # transcript and scene text is fully intact, and that is what makes a
+        # transcript_only ingest useful without the m3-visual extra. Anything
+        # that needs frames has already failed in FRAME_SAMPLE by this point.
+        # The durable trace is the absence of vec_* rows for the asset.
+        log.warning(
+            "embed.skipped_extra_missing",
+            n_frames=len(frames),
+            n_segments=len(segments),
+            hint="install the m3-visual extra for vector-mode search",
+        )
+        return {
+            "frame_vectors": [],
+            "scene_vectors": [],
+            "segment_vectors": [],
+            "vectors_written": 0,
+        }
 
     total = len(frame_vectors) + len(scene_vectors) + len(segment_vectors)
     log.info(

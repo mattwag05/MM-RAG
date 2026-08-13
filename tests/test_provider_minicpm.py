@@ -34,6 +34,7 @@ def test_minicpm_selected_only_when_configured(isolated_data_dir: Path) -> None:
     assert isinstance(_provider(), MiniCPMProvider)
 
 
+@pytest.mark.m3_visual  # constructs a PIL image, so it needs the extra
 def test_letterbox_pads_a_wide_frame_to_square_without_cropping() -> None:
     """MiniCPM raises on 16:9 input (its slicing miscounts visual tokens), and
     every MM-RAG keyframe is 16:9. Cropping to square would throw away a third
@@ -51,6 +52,7 @@ def test_letterbox_pads_a_wide_frame_to_square_without_cropping() -> None:
     assert out.getpixel((320, 634)) == (0, 0, 0)
 
 
+@pytest.mark.m3_visual
 def test_letterbox_leaves_a_square_image_alone() -> None:
     from PIL import Image
 

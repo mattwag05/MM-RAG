@@ -12,6 +12,12 @@ from mmrag.handlers.search import handle_search
 from mmrag.models.mcp_io import IngestInput, SearchInput
 from tests.conftest import SAMPLE_MP4
 
+# Every ingest here runs the default `full` profile, which includes
+# FRAME_SAMPLE/OCR/CAPTION/EMBED and so genuinely requires the m3-visual extra.
+# The core-only end-to-end path is covered by the transcript_only tests in
+# tests/test_ingest_profiles.py, which run without it.
+pytestmark = pytest.mark.m3_visual
+
 
 @pytest.mark.asyncio
 async def test_ingest_sample_mp4_persists_scenes(isolated_data_dir: Path) -> None:

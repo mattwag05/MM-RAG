@@ -75,9 +75,13 @@ DENSIFY_STAGE_ORDER: tuple[Stage, ...] = (
 # and VLM captioning.
 #
 # EMBED stays: with no frames it encodes only transcript segments, which is
-# what vector-mode search over speech needs. It still loads SigLIP for the
-# text tower, so this profile saves time and frames-on-disk, not the model
-# download. SUMMARIZE stays and simply summarises from segments alone.
+# what vector-mode search over speech needs. With the m3-visual extra present
+# it loads SigLIP for the text tower, so the profile saves time and
+# frames-on-disk rather than the model download. Without the extra, EMBED
+# degrades to writing no vectors instead of failing the job (MM-RAG-bdi), which
+# is what makes this profile usable on a core-only install: FTS retrieval over
+# transcript and scene text is unaffected.
+# SUMMARIZE stays and simply summarises from segments alone.
 TRANSCRIPT_ONLY_STAGE_ORDER: tuple[Stage, ...] = (
     Stage.FETCH,
     Stage.NORMALIZE,

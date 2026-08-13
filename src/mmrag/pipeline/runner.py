@@ -17,6 +17,7 @@ from mmrag.models.job import (
     JobStatus,
     Stage,
 )
+from mmrag.pipeline.m3_errors import M3ExtraMissingError
 from mmrag.pipeline.stages.caption import caption
 from mmrag.pipeline.stages.document import DocumentIngestError, ingest_document
 from mmrag.pipeline.stages.embed import embed
@@ -795,6 +796,12 @@ async def run_pipeline(job_id: str) -> None:
     except DocumentIngestError as e:
         log.warning("document.error", job_id=job_id, kind=e.kind, error=str(e))
         _record_error(job_id, e.kind, str(e))
+    except M3ExtraMissingError as e:
+        # A core-only install running a profile that needs the visual stages.
+        # Actionable on its own — kind and message carry the install hint,
+        # where the generic handler below would report it as "unknown".
+        log.warning("m3_extra.missing", job_id=job_id, stage=e.stage, error=str(e))
+        _record_error(job_id, "m3_extra_missing", str(e))
     except asyncio.CancelledError:
         log.info("pipeline.cancelled", job_id=job_id)
         _release_job(job_id, runner_id)
