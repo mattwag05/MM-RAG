@@ -138,7 +138,7 @@ class SearchInput(BaseModel):
     query: str
     asset_id: str | None = None
     top_k: int = Field(10, ge=1, le=100)
-    mode: Literal["hybrid", "vector", "fts", "hybrid_graph"] = "hybrid"
+    mode: Literal["hybrid", "vector", "fts"] = "hybrid"
     time_range: tuple[float, float] | None = None
     include_frames: bool = False
 

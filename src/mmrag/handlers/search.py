@@ -8,13 +8,15 @@ Hybrid retrieval fuses five streams via reciprocal rank fusion (k=60):
   4. SigLIP text-tower cosine over vec_transcript
   5. FTS5 BM25 over the content_items projection (via fts_content_items)
 
-``hybrid_graph`` adds one-hop graph neighbours under a reserved quota (see
-``_with_graph_expansion``). **It currently costs precision for no measured
-gain** — on ``eval/scenes.jsonl`` hybrid scores recall 1.000 / precision 0.295
-/ MRR 0.867 and hybrid_graph scores 1.000 / 0.270 / 0.867. The graph's topic
-nodes are regex tokens, so they include stopwords and OCR misreads
-(``ghatgpt``, ``spotfy-``) as first-class entities. Re-check with
-``make eval-scenes`` before treating the mode as an improvement (MM-RAG-gje).
+There is deliberately no graph mode. ``hybrid_graph`` existed and was removed
+(MM-RAG-88j): measured on ``eval/scenes.jsonl`` it scored recall 1.000 /
+precision 0.270 / MRR 0.867 against hybrid's 1.000 / 0.295 / 0.867, so it
+displaced good direct hits with worse neighbours for no recall or ranking gain.
+The cause is upstream of the fusion code — graph topic nodes are regex tokens,
+so stopwords and OCR misreads (``ghatgpt``, ``spotfy-``) become first-class
+entities. MM-RAG-gje is the path back: replace the regex with real entity
+extraction, re-measure, and only then re-expose a mode. The expansion code is
+in git history at the commit that removed it; do not re-add it unmeasured.
 
 ``vector`` mode additionally queries vec_scenes (mean-pooled frame vectors
 per scene). vec_scenes is deliberately excluded from hybrid RRF: it is a
@@ -53,7 +55,6 @@ from dataclasses import dataclass, field, replace
 
 from mmrag.config import get_settings
 from mmrag.db.connection import connect
-from mmrag.db.graph import expand_search_hits
 from mmrag.logging import get_logger
 from mmrag.models.mcp_io import SearchHit, SearchInput, SearchOutput
 from mmrag.vector_backends import QdrantBackend, SqliteVecBackend, VectorBackend
@@ -630,7 +631,7 @@ def _rrf_fuse(
 
 async def handle_search(inp: SearchInput) -> SearchOutput:
     streams: list[list[_StreamHit]] = []
-    base_mode = "hybrid" if inp.mode == "hybrid_graph" else inp.mode
+    base_mode = inp.mode
     vector_enabled = get_settings().query_vector_enabled
 
     if base_mode in ("fts", "hybrid"):
@@ -712,8 +713,6 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
         hits = sorted([*scene_hits, *content_hits], key=lambda h: h.score, reverse=True)[
             : inp.top_k
         ]
-        if inp.mode == "hybrid_graph":
-            hits = _with_graph_expansion(hits, inp)
         if inp.include_frames:
             hits = _attach_frame_paths(hits)
         return SearchOutput(hits=_attach_coverage_notes(hits))
@@ -774,60 +773,6 @@ async def handle_search(inp: SearchInput) -> SearchOutput:
             )
         )
     hits = hits[: inp.top_k]
-    if inp.mode == "hybrid_graph":
-        hits = _with_graph_expansion(hits, inp)
     if inp.include_frames:
         hits = _attach_frame_paths(hits)
     return SearchOutput(hits=_attach_coverage_notes(hits))
-
-
-def _graph_quota(top_k: int) -> int:
-    """Slots reserved for graph-expanded hits when any survive dedup.
-
-    A quota rather than score interleaving: the graph's score is ``weight/100``
-    and the fused scores run ~0.016-0.05, so merging them by score would let an
-    arbitrary scale decide the ranking — the same trap the module docstring
-    warns about for raw stream scores.
-    """
-    return max(1, top_k // 4)
-
-
-def _with_graph_expansion(hits: list[SearchHit], inp: SearchInput) -> list[SearchHit]:
-    """Blend one-hop graph neighbours into an already-ranked result set.
-
-    ``hits`` arrives already truncated to ``top_k``. Appending the expanded
-    hits after it and stopping at ``top_k`` — which is what this did — meant a
-    graph hit could never survive whenever direct retrieval filled the result
-    set, i.e. essentially always. Measured before the fix: 10 graph candidates
-    produced per query and 0 in the output, at top_k 10, 20 and 40, so
-    ``hybrid_graph`` scored identically to ``hybrid`` on every metric.
-    Reserving a quota is what makes the mode able to do anything at all.
-    """
-    if not get_settings().graph_enabled:
-        return hits
-    expanded = expand_search_hits(
-        hits,
-        top_k=max(inp.top_k - len(hits), inp.top_k),
-        asset_id=inp.asset_id,
-        time_range=inp.time_range,
-    )
-    seen = {(h.asset_id, h.content_item_id, h.scene_id, h.frame_id) for h in hits}
-    fresh: list[SearchHit] = []
-    for hit in expanded:
-        key = (hit.asset_id, hit.content_item_id, hit.scene_id, hit.frame_id)
-        if key in seen:
-            continue
-        seen.add(key)
-        fresh.append(hit)
-    if not fresh:
-        return hits[: inp.top_k]
-
-    quota = min(len(fresh), _graph_quota(inp.top_k))
-    merged = [*hits[: inp.top_k - quota], *fresh[:quota]]
-    # Backfill from the base hits the quota displaced, so a short graph result
-    # never shrinks the response below what plain hybrid would have returned.
-    for hit in hits[inp.top_k - quota :]:
-        if len(merged) >= inp.top_k:
-            break
-        merged.append(hit)
-    return merged[: inp.top_k]

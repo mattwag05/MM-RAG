@@ -32,7 +32,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     ingest_inline: bool = True
     worker_concurrency: int = 2
-    graph_enabled: bool = True
+    # Off since MM-RAG-88j removed the only reader (the hybrid_graph mode), so
+    # leaving it on would make every content_items rewrite build nodes and edges
+    # nothing queries. The builder stays for MM-RAG-gje, which has to fix the
+    # regex topic terms before a graph retrieval path is worth re-exposing.
+    graph_enabled: bool = False
     # Ingest-time VLM captioning of silent scenes. Off-switch for edge
     # deployments that cannot spare the 469 MB Florence-2 download.
     caption_enabled: bool = True

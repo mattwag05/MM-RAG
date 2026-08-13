@@ -205,17 +205,19 @@ async def test_fts_search_filters_content_items_by_time_range(isolated_data_dir:
 
 
 @pytest.mark.asyncio
-async def test_hybrid_graph_expansion_filters_content_items_by_time_range(
+async def test_hybrid_filters_content_items_by_time_range(
     isolated_data_dir: Path,
 ) -> None:
-    _seed_asset_with_content_items("graph-time", "graph-time-hash")
+    """Kept from the hybrid_graph era (MM-RAG-88j removed that mode): the
+    subject here is the time_range filter on the content_items stream, which
+    the graph path only ever rode on top of."""
+    _seed_asset_with_content_items("hybrid-time", "hybrid-time-hash")
 
     out = await handle_search(
-        SearchInput(query="early", mode="hybrid_graph", top_k=2, time_range=(0.0, 1.0))
+        SearchInput(query="early", mode="hybrid", top_k=2, time_range=(0.0, 1.0))
     )
 
-    assert [hit.content_item_id for hit in out.hits] == ["graph-time:early"]
-    assert all(hit.source_stream != "graph" for hit in out.hits)
+    assert [hit.content_item_id for hit in out.hits] == ["hybrid-time:early"]
 
 
 @pytest.mark.asyncio

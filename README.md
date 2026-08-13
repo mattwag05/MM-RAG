@@ -84,10 +84,10 @@ which clip in your library is the one where the onboarding modal appears.
   the `content_items` projection
 - ✅ `ingest(local_document)` for Markdown, HTML, TXT, DOCX, and PDF text
   extraction into the same `content_items` retrieval path.
-- ✅ `search(...)` supports `fts`, `vector`, `hybrid`, and `hybrid_graph`
-  modes over transcript, OCR, document content, vectors, and graph neighbors.
-- ✅ Lightweight SQLite graph tables (`nodes`, `edges`) over assets, content
-  items, scenes, frames, segments, and topics.
+- ✅ `search(...)` supports `fts`, `vector`, and `hybrid` modes over
+  transcript, OCR, document content, and vectors.
+- ⏸️ SQLite graph tables (`nodes`, `edges`) exist but are off by default and
+  have no reader: the `hybrid_graph` mode was removed for costing precision.
 - ✅ Optional vector backend protocol with SQLite default and a Qdrant
   selection hook for self-hosted experiments.
 - ✅ Scenes with neither speech nor on-screen text get a Florence-2 caption at
@@ -177,9 +177,8 @@ ask(question, asset_id=None, time_range=None, top_k=5,
       confidence }
 
 search(query, asset_id=None, time_range=None, top_k=10,
-       mode="hybrid"|"vector"|"fts"|"hybrid_graph")
-  # "hybrid" is the one to use. "hybrid_graph" currently trades precision
-  # (0.295 -> 0.270) for no recall or MRR gain — see eval/README.md.
+       mode="hybrid"|"vector"|"fts")
+  # "hybrid" is the one to use.
   → { hits: [{ asset_id, content_item_id, scene_id, frame_id, start_s, end_s,
                score, snippet, source_stream, coverage_note }] }
 
@@ -523,7 +522,7 @@ independently testable; the project pauses for review between them.
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared self-hosted MM-RAG service, with shared bearer token and discovery metadata |
 | **M6** | ✅ | Raspberry Pi / self-hosted deploy path: MCP HTTP + worker Compose stack, token-required non-loopback bind, no bundled Ollama/Gemma |
 | **M7** | Dropped | The reference-consumer integration was removed: its receiver was never locatable, so the path was never validated, and an app-specific integration does not belong in a generic plugin |
-| **2.x foundation** | ✅ | Document ingestion via `content_items`, graph-aware `hybrid_graph` retrieval, and optional vector backend protocol |
+| **2.x foundation** | ✅ | Document ingestion via `content_items` and an optional vector backend protocol. Graph-aware retrieval was built and then removed: it cost precision (0.295 → 0.270) for no recall or MRR gain |
 
 **Deferred** (tracked, not forgotten): speaker diarization, PaddleOCR,
 dedicated video VLM, UI/screen-recording mode with dense frame sampling and

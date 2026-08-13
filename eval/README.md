@@ -19,25 +19,28 @@ make eval-full   # full set: fetches public URLs via yt-dlp (slow, local only)
 construction — they are liveness checks, not instruments. Measured side by side
 on the same store:
 
-| dataset | metric | hybrid | hybrid_graph | fts | vector |
+| dataset | metric | hybrid | fts | vector | ~~hybrid_graph~~ |
 |---|---|---|---|---|---|
-| smoke.jsonl  | MRR       | 1.000 | 1.000 | 1.000 | 0.667 |
-| scenes.jsonl | MRR       | 0.867 | 0.867 | 0.842 | 0.554 |
-| scenes.jsonl | recall@10 | 1.000 | 1.000 | 0.950 | 0.850 |
-| scenes.jsonl | prec@10   | 0.295 | **0.270** | 0.410 | 0.280 |
+| smoke.jsonl  | MRR       | 1.000 | 1.000 | 0.667 | 1.000 |
+| scenes.jsonl | MRR       | 0.867 | 0.842 | 0.554 | 0.867 |
+| scenes.jsonl | recall@10 | 1.000 | 0.950 | 0.850 | 1.000 |
+| scenes.jsonl | prec@10   | 0.295 | 0.410 | 0.280 | **0.270** |
 
-**Report precision alongside MRR, or you will misread hybrid_graph.** MRR is
-the one metric on which hybrid and hybrid_graph tie, so an MRR-only table makes
-graph expansion look inert when it is not: it is live, it changes the result
-set, and it changes it for the worse (precision 0.295 → 0.270 for ~2 ms of
-added latency, no recall or MRR gain). Re-measured 2026-08-13 (MM-RAG-t0g),
-matching the numbers in the `handlers/search.py` docstring. The cause is that
-graph topic nodes are regex tokens, so stopwords and OCR misreads (`ghatgpt`,
-`spotfy-`) are first-class entities.
+**Report precision alongside MRR.** The `hybrid_graph` column is kept here as
+the record of why that mode no longer exists (MM-RAG-88j), and it is the
+cautionary case: MRR was the one metric on which it tied with hybrid, so an
+MRR-only table made graph expansion look inert when it was not. It was live, it
+changed the result set, and it changed it for the worse (precision 0.295 →
+0.270 for ~2 ms of added latency, no recall or MRR gain). Measured 2026-08-13
+(MM-RAG-t0g). The cause was that graph topic nodes are regex tokens, so
+stopwords and OCR misreads (`ghatgpt`, `spotfy-`) were first-class entities;
+fixing that is MM-RAG-gje, and re-exposing a graph mode should wait on a
+measurement against this table rather than on the idea sounding good.
 
-The smoke set cannot separate hybrid from fts; the scene set can, and it was
-what exposed graph expansion being dead code (MM-RAG-gje) and gave the
-transcript-attribution fix (MM-RAG-s0l) something to be checked against.
+The smoke set cannot separate hybrid from fts; the scene set can, which is what
+made both graph verdicts possible (first that expansion was inert, then that
+fixing it made things worse) and gave the transcript-attribution fix
+(MM-RAG-s0l) something to be checked against.
 
 Or directly, against whatever store `MMRAG_DATA_DIR` points at:
 

@@ -168,13 +168,13 @@ def check_mcp_health(
 def eval_cmd(
     dataset: str = typer.Option("eval/smoke.jsonl", help="Path to a JSONL eval dataset."),
     top_k: int = typer.Option(10, min=1, max=100, help="Hits requested per question."),
-    mode: str = typer.Option("hybrid", help="Search mode: hybrid|vector|fts|hybrid_graph."),
+    mode: str = typer.Option("hybrid", help="Search mode: hybrid|vector|fts."),
     ingest: bool = typer.Option(
         False, help="Ingest dataset media sources first (slow; local runs only)."
     ),
     sweep: str = typer.Option(
         None,
-        help="Sweep one lever, e.g. 'top_k=3,5,10' or 'mode=hybrid,hybrid_graph,fts'.",
+        help="Sweep one lever, e.g. 'top_k=3,5,10' or 'mode=hybrid,fts,vector'.",
     ),
     json_out: str = typer.Option(None, "--json", help="Also write the report(s) as JSON."),
     fail_under_recall: float = typer.Option(

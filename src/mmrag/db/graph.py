@@ -1,3 +1,13 @@
+"""Ingest-time knowledge graph over content_items.
+
+Write-only as of MM-RAG-88j: the retrieval half (``expand_search_hits``, the
+``hybrid_graph`` mode) was removed because it cost precision, and the cause was
+the quality of these nodes rather than the fusion code — ``_topic_terms`` is a
+regex, so stopwords and OCR misreads become first-class entities. Building is
+off by default now; MM-RAG-gje is the plan to replace the regex with real
+entity extraction, at which point a measured retrieval path can come back.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -5,7 +15,6 @@ import json
 import re
 
 from mmrag.db.connection import connect, transaction
-from mmrag.models.mcp_io import SearchHit
 
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{3,}")
 _STOPWORDS = {
@@ -154,72 +163,3 @@ def rebuild_graph_for_asset(asset_id: str) -> None:
                 _insert_node(conn, topic_node, "topic", asset_id, term)
                 _insert_edge(conn, item_node, topic_node, "mentions", 0.5)
                 _insert_edge(conn, topic_node, item_node, "mentioned_by", 0.5)
-
-
-def expand_search_hits(
-    hits: list[SearchHit],
-    *,
-    top_k: int,
-    asset_id: str | None = None,
-    time_range: tuple[float, float] | None = None,
-) -> list[SearchHit]:
-    seeds = []
-    for hit in hits:
-        if hit.content_item_id:
-            seeds.append(f"item:{hit.content_item_id}")
-        if hit.scene_id:
-            seeds.append(f"scene:{hit.scene_id}")
-    if not seeds:
-        return []
-
-    placeholders = ",".join("?" * len(seeds))
-    sql = f"""
-        SELECT ci.id, ci.asset_id, ci.item_type, ci.scene_id, ci.frame_id,
-               ci.start_s, ci.end_s, ci.text, ci.caption, e.weight
-          FROM edges e
-          JOIN nodes n ON n.id = e.target_node_id
-          JOIN content_items ci ON ('item:' || ci.id) = n.id
-         WHERE e.source_node_id IN ({placeholders})
-    """
-    params: list = list(seeds)
-    if asset_id is not None:
-        sql += " AND ci.asset_id = ?"
-        params.append(asset_id)
-    if time_range is not None:
-        sql += " AND ci.end_s >= ? AND ci.start_s <= ?"
-        params.extend([time_range[0], time_range[1]])
-    sql += " ORDER BY e.weight DESC, ci.chunk_idx LIMIT ?"
-    params.append(top_k)
-
-    existing_keys = {
-        (hit.asset_id, hit.content_item_id, hit.scene_id, hit.frame_id) for hit in hits
-    }
-    out: list[SearchHit] = []
-    with connect() as conn:
-        rows = conn.execute(sql, params).fetchall()
-    for row in rows:
-        key = (
-            row["asset_id"],
-            row["id"],
-            str(row["scene_id"]) if row["scene_id"] is not None else None,
-            str(row["frame_id"]) if row["frame_id"] is not None else None,
-        )
-        if key in existing_keys:
-            continue
-        snippet = row["text"] or row["caption"] or "[graph match]"
-        out.append(
-            SearchHit(
-                asset_id=row["asset_id"],
-                content_item_id=row["id"],
-                scene_id=str(row["scene_id"]) if row["scene_id"] is not None else None,
-                frame_id=str(row["frame_id"]) if row["frame_id"] is not None else None,
-                start_s=float(row["start_s"] or 0.0),
-                end_s=float(row["end_s"] if row["end_s"] is not None else row["start_s"] or 0.0),
-                score=float(row["weight"]) / 100.0,
-                snippet=snippet[:160] + ("…" if len(snippet) > 160 else ""),
-                source_stream="graph",
-            )
-        )
-        if len(out) >= top_k:
-            break
-    return out

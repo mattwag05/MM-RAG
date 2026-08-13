@@ -160,7 +160,7 @@ ingest(source, wait_ms=30000, profile="full")
 ask(question, asset_id=None, time_range=None, top_k=5,
     synthesize=False, model=None)
 search(query, asset_id=None, time_range=None, top_k=10,
-       mode="hybrid"|"vector"|"fts"|"hybrid_graph")
+       mode="hybrid"|"vector"|"fts")
 status(job_id)
 ```
 
@@ -168,9 +168,10 @@ status(job_id)
 `{asset_id, content_item_id, scene_id, frame_id, start_s, end_s,
 source_stream, snippet, score, summary, ocr_snippet, transcript_snippet}`.
 `search` returns a compatible hit superset with `content_item_id`,
-`source_stream`, `frame_id`, `snippet`, and `score`. `hybrid_graph`
-extends hybrid retrieval with SQLite graph neighbors over assets, content
-items, scenes, frames, segments, and topics. `ask` additionally returns an
+`source_stream`, `frame_id`, `snippet`, and `score`. A `hybrid_graph`
+mode over the SQLite graph tables existed and was removed for costing
+precision; the tables are still written when `MMRAG_GRAPH_ENABLED=true`
+but nothing reads them. `ask` additionally returns an
 optional `answer: str | None` and a `confidence` field — `answer` is only
 populated when the caller passes `synthesize=True`. This keeps the core contract evidence-first and
 matches the PMF thesis that edge agents

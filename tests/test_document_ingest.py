@@ -40,22 +40,3 @@ async def test_markdown_ingest_projects_content_items_and_searches(
     assert out.hits
     assert out.hits[0].content_item_id is not None
     assert out.hits[0].source_stream == "content_items"
-
-
-@pytest.mark.asyncio
-async def test_hybrid_graph_expands_from_content_item_seed(isolated_data_dir: Path) -> None:
-    doc = isolated_data_dir / "graph.md"
-    doc.write_text(
-        ("alpha seed sentence. " * 90) + "\n\nneighbor context about jets.", encoding="utf-8"
-    )
-
-    ingest = await handle_ingest(IngestInput(source=str(doc), wait_ms=120000))
-    assert ingest.status == "done"
-    assert ingest.asset_id is not None
-
-    out = await handle_search(
-        SearchInput(query="neighbor", mode="hybrid_graph", asset_id=ingest.asset_id, top_k=3)
-    )
-
-    assert out.hits
-    assert any(hit.source_stream == "graph" for hit in out.hits)

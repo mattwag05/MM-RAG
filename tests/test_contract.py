@@ -126,8 +126,6 @@ class TestSearch:
         inp = SearchInput(query="cats")
         assert inp.mode == "hybrid"
         assert inp.top_k == 10
-        graph = SearchInput(query="cats", mode="hybrid_graph")
-        assert graph.mode == "hybrid_graph"
 
     def test_reversed_time_range_rejected(self) -> None:
         with pytest.raises(ValidationError):

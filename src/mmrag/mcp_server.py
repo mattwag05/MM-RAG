@@ -133,7 +133,7 @@ def _register_tools(server: FastMCP) -> None:
         mode: str = "hybrid",
         include_frames: bool = False,
     ) -> dict:
-        """Search transcripts, OCR, document content, and optional graph context.
+        """Search transcripts, OCR, and document content.
 
         Query phrasing matters per mode. mode="fts" is keyword matching, so
         use the words you expect to be spoken or on screen. mode="vector" and
