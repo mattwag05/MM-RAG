@@ -610,7 +610,7 @@ m3-visual = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", specifier = ">=1.28.1" },
+    { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "num2words", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "numpy", marker = "extra == 'm3-visual'", specifier = ">=1.26" },
     { name = "onnx-asr", extras = ["cpu", "hub"], specifier = ">=0.12.0" },

@@ -26,7 +26,13 @@ dependencies = [
   "httpx>=0.27",
   "starlette>=1.3.1",
   "uvicorn[standard]>=0.32",
-  "mcp>=1.28.1",
+  # Upper bound is load-bearing, not caution: mcp 2.0 moved FastMCP to
+  # mcp.server.mcpserver.MCPServer, so mcp_server.py cannot import on 2.x and a
+  # lock-free `pip install mmrag` resolved a package that fails at import
+  # (MM-RAG-ubd). Everything else we use (server.auth.provider,
+  # server.auth.settings, ClientSession, client.streamable_http) is unchanged
+  # across the major. Porting to the 2.x API is tracked separately.
+  "mcp>=1.28.1,<2",
   "pydantic>=2.9",
   "pydantic-settings>=2.14.2",
   "structlog>=24.4",
