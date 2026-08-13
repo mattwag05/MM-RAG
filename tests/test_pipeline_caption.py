@@ -28,9 +28,7 @@ def _frame(scene_idx: int, path: str, ocr: str = "", frame_idx: int = 0) -> dict
 
 def test_selects_only_scenes_with_neither_speech_nor_on_screen_text() -> None:
     scenes = [_scene(0, 0.0, 2.0), _scene(1, 2.0, 4.0), _scene(2, 4.0, 6.0)]
-    segments = [
-        {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0, "text": "someone is talking"}
-    ]
+    segments = [{"scene_idx": 0, "start_s": 0.0, "end_s": 2.0, "text": "someone is talking"}]
     frames = [
         _frame(0, "/tmp/a.jpg"),  # has speech -> skip
         _frame(1, "/tmp/b.jpg", ocr="Chapter 1"),  # has on-screen text -> skip

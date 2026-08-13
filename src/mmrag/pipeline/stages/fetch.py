@@ -38,9 +38,7 @@ def _subtitles_from_info(info: dict) -> tuple[str, str] | None:
     track. Returns (filepath, lang) or None when no track was written.
     """
     subs = info.get("requested_subtitles") or {}
-    tracks = {
-        lang: t.get("filepath") for lang, t in subs.items() if t and t.get("filepath")
-    }
+    tracks = {lang: t.get("filepath") for lang, t in subs.items() if t and t.get("filepath")}
     if not tracks:
         return None
     lang = info.get("language")
@@ -65,9 +63,7 @@ def _format_selector(max_height: int) -> str:
     stays eligible rather than dropping out of the running.
     """
     return (
-        f"bestvideo[height<=?{max_height}]+bestaudio/"
-        f"best[height<=?{max_height}]/"
-        "best[ext=mp4]/best"
+        f"bestvideo[height<=?{max_height}]+bestaudio/best[height<=?{max_height}]/best[ext=mp4]/best"
     )
 
 

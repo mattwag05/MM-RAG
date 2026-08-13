@@ -28,9 +28,7 @@ def test_default_provider_is_ollama(isolated_data_dir: Path) -> None:
 
 
 def test_minicpm_selected_only_when_configured(isolated_data_dir: Path) -> None:
-    reset_settings_for_tests(
-        Settings(data_dir=isolated_data_dir, synthesize_provider="minicpm")
-    )
+    reset_settings_for_tests(Settings(data_dir=isolated_data_dir, synthesize_provider="minicpm"))
     from mmrag.providers.minicpm import MiniCPMProvider
 
     assert isinstance(_provider(), MiniCPMProvider)

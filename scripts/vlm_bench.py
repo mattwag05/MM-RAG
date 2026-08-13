@@ -87,35 +87,72 @@ class Candidate:
 
 
 CANDIDATES: tuple[Candidate, ...] = (
-    Candidate("florence-base-cap", "florence-community/Florence-2-base",
-              "florence", "MIT", "0.23B", "<CAPTION>"),
-    Candidate("florence-base-detailed", "florence-community/Florence-2-base",
-              "florence", "MIT", "0.23B", "<DETAILED_CAPTION>"),
-    Candidate("florence-base-more", "florence-community/Florence-2-base",
-              "florence", "MIT", "0.23B", "<MORE_DETAILED_CAPTION>"),
-    Candidate("florence-large-more", "florence-community/Florence-2-large",
-              "florence", "MIT", "0.77B", "<MORE_DETAILED_CAPTION>"),
-    Candidate("smolvlm-500m", "HuggingFaceTB/SmolVLM-500M-Instruct",
-              "chat", "Apache-2.0", "0.5B"),
+    Candidate(
+        "florence-base-cap",
+        "florence-community/Florence-2-base",
+        "florence",
+        "MIT",
+        "0.23B",
+        "<CAPTION>",
+    ),
+    Candidate(
+        "florence-base-detailed",
+        "florence-community/Florence-2-base",
+        "florence",
+        "MIT",
+        "0.23B",
+        "<DETAILED_CAPTION>",
+    ),
+    Candidate(
+        "florence-base-more",
+        "florence-community/Florence-2-base",
+        "florence",
+        "MIT",
+        "0.23B",
+        "<MORE_DETAILED_CAPTION>",
+    ),
+    Candidate(
+        "florence-large-more",
+        "florence-community/Florence-2-large",
+        "florence",
+        "MIT",
+        "0.77B",
+        "<MORE_DETAILED_CAPTION>",
+    ),
+    Candidate("smolvlm-500m", "HuggingFaceTB/SmolVLM-500M-Instruct", "chat", "Apache-2.0", "0.5B"),
     Candidate("qwen3.5-2b", "Qwen/Qwen3.5-2B", "chat", "Apache-2.0", "2B"),
     # square_pad: MiniCPM-V-4.6 on transformers 5.14.1 raises
     # "shape '[3, 1034, 1152]' is invalid for input of size 3575808" on wide
     # (16:9) images — its adaptive slicing miscounts visual tokens by 2. Square
     # inputs work. Every MM-RAG keyframe is 16:9, so it needs letterboxing.
-    Candidate("minicpm-v-4.6", "openbmb/MiniCPM-V-4_6", "chat", "Apache-2.0", "1.3B",
-              square_pad=True),
+    Candidate(
+        "minicpm-v-4.6", "openbmb/MiniCPM-V-4_6", "chat", "Apache-2.0", "1.3B", square_pad=True
+    ),
     Candidate("gemma4-e2b", "google/gemma-4-E2B-it", "chat", "Apache-2.0", "5.1B"),
     Candidate("gemma4-e4b", "google/gemma-4-E4B-it", "chat", "Apache-2.0", "8B"),
     # --- round 2 (MM-RAG-58v): text-promptable captioners, with and without
     # transcript conditioning. -cond variants need a --with-transcript corpus.
-    Candidate("smolvlm2-2.2b", "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
-              "chat", "Apache-2.0", "2.2B"),
-    Candidate("smolvlm2-2.2b-cond", "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
-              "chat", "Apache-2.0", "2.2B", COND_PROMPT),
-    Candidate("qwen3.5-2b-cond", "Qwen/Qwen3.5-2B", "chat", "Apache-2.0", "2B",
-              COND_PROMPT),
-    Candidate("minicpm-v-4.6-cond", "openbmb/MiniCPM-V-4_6", "chat", "Apache-2.0",
-              "1.3B", COND_PROMPT, square_pad=True),
+    Candidate(
+        "smolvlm2-2.2b", "HuggingFaceTB/SmolVLM2-2.2B-Instruct", "chat", "Apache-2.0", "2.2B"
+    ),
+    Candidate(
+        "smolvlm2-2.2b-cond",
+        "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+        "chat",
+        "Apache-2.0",
+        "2.2B",
+        COND_PROMPT,
+    ),
+    Candidate("qwen3.5-2b-cond", "Qwen/Qwen3.5-2B", "chat", "Apache-2.0", "2B", COND_PROMPT),
+    Candidate(
+        "minicpm-v-4.6-cond",
+        "openbmb/MiniCPM-V-4_6",
+        "chat",
+        "Apache-2.0",
+        "1.3B",
+        COND_PROMPT,
+        square_pad=True,
+    ),
 )
 
 BY_KEY = {c.key: c for c in CANDIDATES}
@@ -138,9 +175,7 @@ class _RUsage4(ctypes.Structure):
     uint64s; 96 is free insurance against a future v5/v6.
     """
 
-    _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [
-        (f"f{i}", ctypes.c_uint64) for i in range(96)
-    ]
+    _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(f"f{i}", ctypes.c_uint64) for i in range(96)]
 
 
 _LIBPROC = None
@@ -398,8 +433,9 @@ def _open_images(rows: list[dict], square_pad: bool = False):
     return out
 
 
-def run_batch(model, processor, cand: Candidate, images, max_new_tokens: int,
-              rows: list[dict] | None = None):
+def run_batch(
+    model, processor, cand: Candidate, images, max_new_tokens: int, rows: list[dict] | None = None
+):
     """Returns (generate_seconds, captions, total_new_tokens, preprocess_seconds).
 
     ``rows`` is only consulted when the candidate's prompt carries a
@@ -419,9 +455,7 @@ def run_batch(model, processor, cand: Candidate, images, max_new_tokens: int,
 
     t_pre = time.perf_counter()
     if cand.adapter == "florence":
-        inputs = processor(
-            text=[cand.prompt] * n, images=images, return_tensors="pt"
-        )
+        inputs = processor(text=[cand.prompt] * n, images=images, return_tensors="pt")
     else:
         texts = []
         for i in range(n):
@@ -440,9 +474,7 @@ def run_batch(model, processor, cand: Candidate, images, max_new_tokens: int,
             texts.append(text)
         processor.tokenizer.padding_side = "left"
         try:
-            inputs = processor(
-                text=texts, images=images, return_tensors="pt", padding=True
-            )
+            inputs = processor(text=texts, images=images, return_tensors="pt", padding=True)
         except ValueError:
             # Some processors (Gemma-4) read a flat image list as ONE batch of
             # n images rather than n batches of one, and need explicit nesting.
@@ -482,9 +514,9 @@ def run_batch(model, processor, cand: Candidate, images, max_new_tokens: int,
         raw = processor.batch_decode(out, skip_special_tokens=False)
         caps = [
             str(
-                processor.post_process_generation(
-                    t, task=cand.prompt, image_size=img.size
-                ).get(cand.prompt, "")
+                processor.post_process_generation(t, task=cand.prompt, image_size=img.size).get(
+                    cand.prompt, ""
+                )
             )
             for t, img in zip(raw, images, strict=True)
         ]
@@ -534,8 +566,27 @@ class ModelResult:
 
 
 _STOPWORDS = {
-    "a", "an", "the", "of", "in", "on", "at", "to", "is", "are", "and", "or",
-    "with", "this", "that", "it", "its", "there", "image", "picture", "photo",
+    "a",
+    "an",
+    "the",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "is",
+    "are",
+    "and",
+    "or",
+    "with",
+    "this",
+    "that",
+    "it",
+    "its",
+    "there",
+    "image",
+    "picture",
+    "photo",
 }
 
 
@@ -553,8 +604,13 @@ def _quality_metrics(caps: list[str]) -> tuple[float, int]:
     return ratio, dupes
 
 
-def bench_one(cand: Candidate, rows: list[dict], batches: list[int],
-              max_new_tokens: int, dtype_name: str = "float32") -> ModelResult:
+def bench_one(
+    cand: Candidate,
+    rows: list[dict],
+    batches: list[int],
+    max_new_tokens: int,
+    dtype_name: str = "float32",
+) -> ModelResult:
     res = ModelResult(key=cand.key, repo=cand.repo, license=cand.license, params=cand.params)
     res.baseline_mb = phys_footprint_mb()
 
@@ -580,8 +636,7 @@ def bench_one(cand: Candidate, rows: list[dict], batches: list[int],
                     continue
                 warm = images[: min(b, len(images))]
                 for _ in range(2):  # MPS compiles kernels per tensor shape
-                    run_batch(model, processor, cand, warm, max_new_tokens,
-                              rows[: len(warm)])
+                    run_batch(model, processor, cand, warm, max_new_tokens, rows[: len(warm)])
 
                 per_frame_ms: list[float] = []
                 pre_ms: list[float] = []
@@ -632,11 +687,7 @@ def bench_one(cand: Candidate, rows: list[dict], batches: list[int],
             print(f"  FAILED: {res.error}", file=sys.stderr)
 
         res.mps_fallbacks = sorted(
-            {
-                m
-                for rec in caught
-                if "fall back to run on the CPU" in (m := str(rec.message))
-            }
+            {m for rec in caught if "fall back to run on the CPU" in (m := str(rec.message))}
         )
     return res
 
@@ -660,7 +711,9 @@ def format_table(results: list[ModelResult]) -> str:
     lines = [hdr, sep]
     for r in results:
         if not r.ok:
-            lines.append(f"| {r.key} | {r.params} | — | {r.license} | FAILED: {r.error} |" + " — |" * 8)
+            lines.append(
+                f"| {r.key} | {r.params} | — | {r.license} | FAILED: {r.error} |" + " — |" * 8
+            )
             continue
         b1 = next((b for b in r.batches if b.batch == 1), None)
         b8 = next((b for b in r.batches if b.batch == 8), None)
@@ -732,8 +785,11 @@ def dump_html(results: list[ModelResult], out: Path, n: int) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--build-corpus", type=Path, metavar="OUT")
-    ap.add_argument("--with-transcript", action="store_true",
-                    help="corpus from scenes WITH speech (round-2 conditioning)")
+    ap.add_argument(
+        "--with-transcript",
+        action="store_true",
+        help="corpus from scenes WITH speech (round-2 conditioning)",
+    )
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     ap.add_argument("--model", help="bench a single candidate key")
     ap.add_argument("--all", action="store_true", help="subprocess per candidate")
@@ -761,9 +817,14 @@ def main() -> None:
 
     if args.report or args.dump_html:
         results = [
-            ModelResult(**{**json.loads(p.read_text()),
-                           "batches": [BatchResult(**b) for b in
-                                       json.loads(p.read_text()).get("batches", [])]})
+            ModelResult(
+                **{
+                    **json.loads(p.read_text()),
+                    "batches": [
+                        BatchResult(**b) for b in json.loads(p.read_text()).get("batches", [])
+                    ],
+                }
+            )
             for p in sorted(args.out.glob("*.json"))
         ]
         if args.dump_html:
@@ -791,10 +852,22 @@ def main() -> None:
         for key in keys:
             print(f"\n=== {key} ===", flush=True)
             subprocess.run(
-                [sys.executable, __file__, "--model", key, "--out", str(args.out),
-                 "--manifest", str(args.manifest), "--batches", args.batches,
-                 "--limit", str(args.limit),
-                 "--max-new-tokens", str(args.max_new_tokens)],
+                [
+                    sys.executable,
+                    __file__,
+                    "--model",
+                    key,
+                    "--out",
+                    str(args.out),
+                    "--manifest",
+                    str(args.manifest),
+                    "--batches",
+                    args.batches,
+                    "--limit",
+                    str(args.limit),
+                    "--max-new-tokens",
+                    str(args.max_new_tokens),
+                ],
                 check=False,
             )
         subprocess.run([sys.executable, __file__, "--report", "--out", str(args.out)])

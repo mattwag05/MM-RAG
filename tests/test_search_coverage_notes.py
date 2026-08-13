@@ -24,9 +24,9 @@ def _scene_with_frames(*, duration_s: float, n_frames: int) -> str:
             "INSERT INTO scenes (asset_id, scene_idx, start_s, end_s) VALUES (?, 0, 0.0, ?)",
             (asset_id, duration_s),
         )
-        scene_id = conn.execute(
-            "SELECT id FROM scenes WHERE asset_id = ?", (asset_id,)
-        ).fetchone()["id"]
+        scene_id = conn.execute("SELECT id FROM scenes WHERE asset_id = ?", (asset_id,)).fetchone()[
+            "id"
+        ]
         for i in range(n_frames):
             conn.execute(
                 """

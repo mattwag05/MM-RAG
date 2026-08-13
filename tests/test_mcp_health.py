@@ -93,4 +93,3 @@ def test_tool_payload_rejects_non_json_text():
 
     with pytest.raises(HealthCheckError, match="non-JSON"):
         tool_payload(result)
-

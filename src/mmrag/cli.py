@@ -211,11 +211,15 @@ def eval_cmd(
             override = {sweep_key: int(value) if sweep_key == "top_k" else value}
             # Ingest at most once, on the first run.
             configs.append(
-                EvalConfig(dataset=base.dataset, ingest=ingest and i == 0, **{
-                    "top_k": base.top_k,
-                    "mode": base.mode,
-                    **override,
-                })
+                EvalConfig(
+                    dataset=base.dataset,
+                    ingest=ingest and i == 0,
+                    **{
+                        "top_k": base.top_k,
+                        "mode": base.mode,
+                        **override,
+                    },
+                )
             )
 
     reports = []

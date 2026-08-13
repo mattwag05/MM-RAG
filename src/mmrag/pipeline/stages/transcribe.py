@@ -58,9 +58,7 @@ _MODEL = None
 _MAX_SPEECH_S = 5  # see module docstring for the measurement table
 
 # "HH:MM:SS.mmm" with optional hours ("MM:SS.mmm"), as WebVTT allows both.
-_VTT_CUE_RE = re.compile(
-    r"^\s*((?:\d+:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d+:)?\d{2}:\d{2}\.\d{3})"
-)
+_VTT_CUE_RE = re.compile(r"^\s*((?:\d+:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d+:)?\d{2}:\d{2}\.\d{3})")
 _VTT_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -175,9 +173,7 @@ async def transcribe(
             cues = _parse_vtt(Path(subtitle_path))
             if cues:
                 segments = _to_segments(cues, scenes)
-                log.info(
-                    "transcribe.captions", path=subtitle_path, n_segments=len(segments)
-                )
+                log.info("transcribe.captions", path=subtitle_path, n_segments=len(segments))
                 return {"segments": segments, "transcript_source": "captions"}
             log.warning("subtitles.empty", path=subtitle_path)
         else:
