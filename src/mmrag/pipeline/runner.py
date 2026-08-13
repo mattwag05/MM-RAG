@@ -67,7 +67,7 @@ def _claim_job(job_id: str, runner_id: str) -> dict | None:
         if cur.rowcount != 1:
             return None
         row = conn.execute(
-            "SELECT id, source, push_to_sbt, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
+            "SELECT id, source, status, stage, pipeline_state_json FROM jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
         return dict(row) if row is not None else None
@@ -543,102 +543,6 @@ def _upsert_asset(state: dict) -> None:
         )
 
 
-def _sbt_payload(asset_id: str) -> dict | None:
-    with connect() as conn:
-        asset = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
-        if asset is None:
-            return None
-        transcript = conn.execute(
-            """
-            SELECT group_concat(text, ' ') AS text
-              FROM transcript_segments
-             WHERE asset_id = ?
-             ORDER BY seg_idx
-            """,
-            (asset_id,),
-        ).fetchone()
-        summaries = conn.execute(
-            """
-            SELECT summary
-              FROM scenes
-             WHERE asset_id = ?
-               AND summary IS NOT NULL
-               AND summary <> ''
-             ORDER BY scene_idx
-             LIMIT 8
-            """,
-            (asset_id,),
-        ).fetchall()
-        content_text = conn.execute(
-            """
-            SELECT group_concat(text, ' ') AS text
-              FROM content_items
-             WHERE asset_id = ?
-               AND text IS NOT NULL
-               AND text <> ''
-             ORDER BY chunk_idx
-            """,
-            (asset_id,),
-        ).fetchone()
-
-    transcript_text = transcript["text"] or content_text["text"] or ""
-    summary = " ".join(row["summary"] for row in summaries if row["summary"]).strip()
-    if not summary:
-        summary = (transcript_text[:500] + ("…" if len(transcript_text) > 500 else "")).strip()
-    top_tags = _top_tags(" ".join(part for part in (summary, transcript_text) if part))
-    return {
-        "url": asset["source_url"] or asset["mezzanine_path"] or asset["metadata_json"],
-        "platform": _platform(asset["source_url"]),
-        "mmrag_asset_id": asset_id,
-        "summary": summary,
-        "topTags": top_tags,
-        "transcriptText": transcript_text,
-    }
-
-
-def _platform(source_url: str | None) -> str:
-    if not source_url:
-        return "unknown"
-    lowered = source_url.lower()
-    if "instagram.com" in lowered:
-        return "instagram"
-    if "threads.net" in lowered:
-        return "threads"
-    if "youtube.com" in lowered or "youtu.be" in lowered:
-        return "youtube"
-    return "unknown"
-
-
-def _top_tags(text: str) -> list[str]:
-    import re
-    from collections import Counter
-
-    words = [
-        w.lower()
-        for w in re.findall(r"[A-Za-z][A-Za-z0-9_-]{3,}", text)
-        if w.lower() not in {"about", "from", "that", "this", "with", "there", "their"}
-    ]
-    return [word for word, _count in Counter(words).most_common(8)]
-
-
-async def _push_to_sbt_if_requested(asset_id: str | None, push_to_sbt: bool) -> None:
-    if not asset_id or not push_to_sbt:
-        return
-    settings = get_settings()
-    if not settings.sbt_url:
-        log.warning("sbt.skip_no_url", asset_id=asset_id)
-        return
-    payload = _sbt_payload(asset_id)
-    if payload is None:
-        return
-    from mmrag.sbt_client import SBTClientError, push_to_sbt
-
-    try:
-        await push_to_sbt(settings.sbt_url, payload)
-    except SBTClientError as e:
-        log.warning("sbt.push_failed", asset_id=asset_id, error=str(e))
-
-
 async def _run_stage(stage: Stage, state: dict) -> dict:
     """Dispatch a stage by name. M1 only has fetch+normalize as real stages;
     everything else returns a stub patch."""
@@ -750,7 +654,6 @@ async def run_pipeline(job_id: str) -> None:
     last_completed = state.get("last_completed_stage") or row["stage"]
     completed_stage = Stage(last_completed) if last_completed else Stage.QUEUED
     completed_idx = stage_order.index(completed_stage) if completed_stage in stage_order else -1
-    push_to_sbt = bool(row["push_to_sbt"])
 
     try:
         n_stages = len(stage_order)
@@ -882,7 +785,6 @@ async def run_pipeline(job_id: str) -> None:
         state["last_completed_stage"] = Stage.DONE.value
         _persist_state(job_id, _strip_internal(state), Stage.DONE, 1.0)
         _set_status(job_id, JobStatus.DONE)
-        await _push_to_sbt_if_requested(state.get("asset_id"), push_to_sbt)
         log.info("job.done", job_id=job_id, asset_id=state.get("asset_id"))
     except FetchError as e:
         log.warning("fetch.error", job_id=job_id, kind=e.kind, error=str(e))

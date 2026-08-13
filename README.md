@@ -90,10 +90,6 @@ which clip in your library is the one where the onboarding modal appears.
   items, scenes, frames, segments, and topics.
 - ✅ Optional vector backend protocol with SQLite default and a Qdrant
   selection hook for self-hosted experiments.
-- ✅ MM-RAG-side Social Bookmarks Triage push client via `push_to_sbt=true`.
-  The SBT receiver app was not available at the documented local path during
-  the 2026-06-04 audit, so end-to-end SBT receiver validation is tracked
-  separately.
 - ✅ Scenes with neither speech nor on-screen text get a Florence-2 caption at
   ingest, indexed into FTS and surfaced as evidence (`MMRAG_CAPTION_ENABLED=false`
   to skip the 469 MB download)
@@ -168,12 +164,13 @@ first run via `ffmpeg lavfi` sources into `tests/fixtures/` and gitignored.
 ## MCP tool surface
 
 ```
-ingest(source, wait_ms=30000, push_to_sbt=False, profile="full")
+ingest(source, wait_ms=30000, profile="full")
   → { status, asset_id, job_id, summary, error }
   profile="transcript_only" skips frame sampling, OCR, and captioning
 
 ask(question, asset_id=None, time_range=None, top_k=5,
-    model="gemma4:e4b", synthesize=False)
+    model=None, synthesize=False)
+  model is ignored unless synthesize=true; None uses the configured default
   → { answer, evidence: [{ asset_id, content_item_id, scene_id, start_s, end_s,
                            source_stream, snippet, score, summary,
                            ocr_snippet, transcript_snippet, coverage_note }],
@@ -220,18 +217,25 @@ Add to your client's MCP config:
   "mcpServers": {
     "mmrag": {
       "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/MM-RAG", "mmrag", "serve-mcp"]
+      "args": ["run", "--directory", "/absolute/path/to/MM-RAG",
+               "--extra", "m3-visual", "mmrag", "serve-mcp"]
     }
   }
 }
 ```
+
+> Keep `--extra m3-visual` in the args. `uv run` re-syncs the environment to
+> the project's *default* dependencies on every invocation, so a bare
+> `uv run ... mmrag serve-mcp` silently uninstalls torch and open-clip and
+> takes the frame/OCR/caption pipeline down with it. Drop the extra only if
+> you deliberately want a transcript-only install.
 
 Then in the chat: *"Ingest <some YouTube URL>, then ask what happens at the
 30-second mark."*
 
 ### Shared private-network MCP server
 
-`serve-mcp-http` exposes the same four MCP tools over FastMCP's
+`serve-mcp-http` exposes the same five MCP tools over FastMCP's
 Streamable HTTP transport. Loopback binds are allowed without a token for
 local development; any non-loopback bind requires `MMRAG_MCP_TOKEN`.
 
@@ -518,7 +522,7 @@ independently testable; the project pauses for review between them.
 | **M4** | ✅ | Evidence packs + synth opt-in: `ask` returns evidence by default, `answer` is nullable, `synthesize=true` calls Ollama/Gemma, `content_items` projects scenes/segments/frames, and stage 8 writes deterministic scene summaries. |
 | **M5** | ✅ | Streamable-HTTP MCP transport for a shared self-hosted MM-RAG service, with shared bearer token and discovery metadata |
 | **M6** | ✅ | Raspberry Pi / self-hosted deploy path: MCP HTTP + worker Compose stack, token-required non-loopback bind, no bundled Ollama/Gemma |
-| **M7** | Partial | MM-RAG-side Social Bookmarks Triage REST client is implemented; SBT-side receiver/schema validation is pending |
+| **M7** | Dropped | The reference-consumer integration was removed: its receiver was never locatable, so the path was never validated, and an app-specific integration does not belong in a generic plugin |
 | **2.x foundation** | ✅ | Document ingestion via `content_items`, graph-aware `hybrid_graph` retrieval, and optional vector backend protocol |
 
 **Deferred** (tracked, not forgotten): speaker diarization, PaddleOCR,
@@ -551,7 +555,6 @@ MM-RAG/
     ├── mcp_server.py          # FastMCP stdio + Streamable HTTP app factory
     ├── api.py                 # FastAPI REST mirror
     ├── worker.py              # job-queue drain
-    ├── sbt_client.py          # MM-RAG-side Social Bookmarks Triage REST client
     ├── db/
     │   ├── connection.py      # WAL pragma, transaction helpers
     │   ├── migrations.py      # idempotent migration runner

@@ -81,7 +81,7 @@ reasoning layer in `ask` is not — it ties the Pi footprint to a
 P1.** The thesis explicitly says "shared index queried by multiple edge
 agents via MCP." Stdio-only transport means each caller ships its own
 MM-RAG silo, which is the opposite of that. Tailnet-hosted
-streamable-HTTP is how [agent], [agent], Kit, and Claude Code all hit the same
+streamable-HTTP is how several agents on one private network hit the same
 index from one host. Currently ranked *below* the SBT integration,
 which is inverted.
 
@@ -131,10 +131,10 @@ MCP transport means proving the wrong thing first.
 | M4  | `MM-RAG-4oz`  | Evidence packs (synth opt-in)                            | P1       | rescoped          |
 | M5  | `MM-RAG-kb0`  | Streamable-HTTP MCP transport (tailnet-hosted service)   | P1       | P3 → P1           |
 | M6  | `MM-RAG-xr0`  | Raspberry Pi deploy (lighter footprint)                 | P2       | scope trimmed     |
-| M7  | `MM-RAG-456`  | SBT reference integration                                | P3       | P2 → P3           |
+| M7  | `MM-RAG-456`  | SBT reference integration (**DROPPED**, see below)        | —        | removed 2026-08-13 |
 | post-v1 | (new)     | Bundled reasoning `[reasoning]` pyproject extra           | P3       | new               |
 
-Dependency chain: M3 → M4 → M5 → M6 → M7.
+Dependency chain: M3 → M4 → M5 → M6. (M7 is dropped, see below.)
 
 ### M3 — Visual pipeline (`MM-RAG-eym`, unchanged)
 
@@ -168,8 +168,7 @@ Concrete changes from the original M4 scope:
 
 ### M5 — Streamable-HTTP MCP transport (`MM-RAG-kb0`, P3 → P1)
 
-This is how [agent], [agent], Kit, and Claude Code all query one MM-RAG
-instance from one host. Without it, the v1 deployment is a stdio silo
+This is how several agents query one MM-RAG instance from one host. Without it, the v1 deployment is a stdio silo
 per agent — which contradicts the whole thesis. The handler layer is
 already transport-agnostic (FastAPI REST and FastMCP stdio share it);
 adding streamable-HTTP is a second transport binding, not a rewrite.
@@ -197,11 +196,19 @@ real application. Scope unchanged from the original issue, priority
 drops to P3 behind the Pi deploy. Marks the transition from "tool
 works" to "tool is integrated somewhere real."
 
-Status note from the 2026-06-04 audit: MM-RAG-side client support exists
-(`push_to_sbt=true`, `MMRAG_SBT_URL`, `src/mmrag/sbt_client.py`, and tests),
-but the SBT app was not present at the documented local path, and no SBT-side
-receiver/schema/FTS smoke test could be run. Treat M7 as partial until the
-receiver is located or restored and validated end to end.
+**DECIDED 2026-08-13 (MM-RAG-rrh): M7 is dropped. Do not re-litigate.**
+The client side shipped (`push_to_sbt=true`, `MMRAG_SBT_URL`,
+`src/mmrag/sbt_client.py`, tests), but the receiver was never locatable — the
+2026-06-04 audit could not run a single end-to-end smoke, and nothing changed
+in the two months after. Two reasons to remove rather than keep waiting:
+the path has no evidence it ever worked, and this repo is destined to ship as
+a generic public plugin, which cannot carry an integration with one private
+application. Removed: `sbt_client.py`, its tests, `MMRAG_SBT_URL`, the
+`push_to_sbt` parameter on `ingest`, and the push call in the runner.
+Migration `0010_drop_job_push_to_sbt.sql` drops the column.
+
+If a reference consumer is wanted later, build it against the public MCP
+surface as a separate repo. Nothing in MM-RAG needs to know about it.
 
 ## v1 single-tenant assumption (explicit)
 

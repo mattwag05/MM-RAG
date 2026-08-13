@@ -31,11 +31,11 @@ def _insert_job(
         conn.execute(
             """
             INSERT INTO jobs (
-                id, source, push_to_sbt, status, stage, progress,
+                id, source, status, stage, progress,
                 wait_ms, pipeline_state_json, runner_id, runner_heartbeat_at,
                 error_kind, error_message
             )
-            VALUES (?, 'fixture.mp4', 0, ?, ?, 0.0, 0, '{}', ?, ?, ?, ?)
+            VALUES (?, 'fixture.mp4', ?, ?, 0.0, 0, '{}', ?, ?, ?, ?)
             """,
             (
                 job_id,

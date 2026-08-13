@@ -14,7 +14,6 @@ class IngestInput(BaseModel):
 
     source: str = Field(..., description="URL or local file path")
     wait_ms: int = Field(30000, ge=0, le=600000)
-    push_to_sbt: bool = False
     # "transcript_only" skips frame sampling, OCR, and captioning — the three
     # stages that dominate ingest cost — for bulk runs where speech is the
     # point. Scene detection and transcript embeddings still run.
@@ -76,7 +75,12 @@ class AskInput(BaseModel):
     asset_id: str | None = None
     time_range: tuple[float, float] | None = None
     top_k: int = Field(5, ge=1, le=50)
-    model: Literal["gemma4:e4b", "gemma4:e2b"] = "gemma4:e4b"
+    # Free-form and ignored unless synthesize=true. It used to be a Literal of
+    # two Ollama Gemma tags, which advertised those as the only legal models
+    # while the actual backend is chosen by MMRAG_SYNTHESIZE_PROVIDER — a tag
+    # the caller can neither see nor influence. None means "whatever the
+    # configured provider defaults to" (docs/pmf-rethink.md).
+    model: str | None = None
     synthesize: bool = False
     include_frames: bool = False
 

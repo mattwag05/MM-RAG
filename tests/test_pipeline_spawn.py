@@ -22,10 +22,10 @@ async def test_run_job_child_uses_the_parents_data_dir(isolated_data_dir: Path) 
         conn.execute(
             """
             INSERT INTO jobs (
-                id, source, push_to_sbt, status, stage, progress,
+                id, source, status, stage, progress,
                 wait_ms, pipeline_state_json
             )
-            VALUES (?, '/nonexistent/spawn-fixture.mp4', 0, 'queued', 'queued', 0.0, 0, '{}')
+            VALUES (?, '/nonexistent/spawn-fixture.mp4', 'queued', 'queued', 0.0, 0, '{}')
             """,
             (job_id,),
         )
