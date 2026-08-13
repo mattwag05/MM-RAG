@@ -36,7 +36,7 @@ dependencies = [
   "scenedetect[opencv]>=0.6.4,<0.7",  # BSD-3
   "onnx-asr[cpu,hub]>=0.12.0",        # MIT (model: Parakeet TDT v3, CC-BY-4.0)
   "sqlite-vec>=0.1.0",                # Apache-2
-  "pypdf>=6.13.3",                    # BSD-3, PDF text extraction
+  "pypdf>=6.15.0",                    # BSD-3, PDF text extraction
 ]
 
 [project.optional-dependencies]
