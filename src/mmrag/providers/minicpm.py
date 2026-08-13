@@ -154,9 +154,7 @@ def _generate_sync(messages: list[Message], config: GenerateConfig) -> str:
     text = processor.apply_chat_template(chat, add_generation_prompt=True)
     if not isinstance(text, str):  # some processor versions return token ids
         text = processor.decode(text)
-    inputs = processor(
-        text=[text], images=[images] if images else None, return_tensors="pt"
-    )
+    inputs = processor(text=[text], images=[images] if images else None, return_tensors="pt")
     inputs = {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}
 
     with torch.no_grad():
@@ -171,9 +169,7 @@ def _generate_sync(messages: list[Message], config: GenerateConfig) -> str:
     prompt_len = inputs["input_ids"].shape[1] if "input_ids" in inputs else 0
     # Decode only the continuation — the prompt carries the whole evidence
     # pack, and echoing it back would swamp the answer.
-    return processor.batch_decode(
-        generated[:, prompt_len:], skip_special_tokens=True
-    )[0].strip()
+    return processor.batch_decode(generated[:, prompt_len:], skip_special_tokens=True)[0].strip()
 
 
 class MiniCPMProvider(ModelProvider):

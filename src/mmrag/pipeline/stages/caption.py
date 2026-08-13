@@ -118,9 +118,7 @@ def _caption_paths_sync(paths: list[str]) -> dict[str, str]:
         try:
             images = [img for _, img in loaded]
             inputs = processor(text=[_TASK] * len(images), images=images, return_tensors="pt")
-            inputs = {
-                k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()
-            }
+            inputs = {k: (v.to(device) if hasattr(v, "to") else v) for k, v in inputs.items()}
             with torch.no_grad():
                 generated = model.generate(
                     **inputs,
@@ -133,9 +131,7 @@ def _caption_paths_sync(paths: list[str]) -> dict[str, str]:
             # task tags, so stripping them first loses the caption.
             decoded = processor.batch_decode(generated, skip_special_tokens=False)
             for (path, img), raw in zip(loaded, decoded, strict=True):
-                parsed = processor.post_process_generation(
-                    raw, task=_TASK, image_size=img.size
-                )
+                parsed = processor.post_process_generation(raw, task=_TASK, image_size=img.size)
                 out[path] = " ".join(str(parsed.get(_TASK, "")).split())
         except Exception as e:  # noqa: BLE001
             # A whole batch failing must not fail the ingest — these frames
@@ -163,24 +159,18 @@ def _frames_needing_caption(
     """
     selected: list[dict] = []
     for scene in scenes:
-        if any(
-            _overlaps_scene(seg, scene) and _clean_text(seg.get("text")) for seg in segments
-        ):
+        if any(_overlaps_scene(seg, scene) and _clean_text(seg.get("text")) for seg in segments):
             continue
         scene_frames = [f for f in frames if _overlaps_scene(f, scene)]
         if any(_clean_text(f.get("ocr_text")) for f in scene_frames):
             continue
-        midpoint = next(
-            (f for f in scene_frames if int(f.get("frame_idx", 0)) == 0), None
-        )
+        midpoint = next((f for f in scene_frames if int(f.get("frame_idx", 0)) == 0), None)
         if midpoint and midpoint.get("path"):
             selected.append(midpoint)
     return selected
 
 
-async def caption(
-    *, scenes: list[dict], segments: list[dict], frames: list[dict]
-) -> dict:
+async def caption(*, scenes: list[dict], segments: list[dict], frames: list[dict]) -> dict:
     if not frames:
         return {"frames": []}
     if not get_settings().caption_enabled:

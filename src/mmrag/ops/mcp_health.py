@@ -61,7 +61,9 @@ def parse_token_envs(value: str) -> tuple[str, ...]:
     return envs
 
 
-def select_token(env_names: tuple[str, ...], environ: dict[str, str] | None = None) -> tuple[str, str]:
+def select_token(
+    env_names: tuple[str, ...], environ: dict[str, str] | None = None
+) -> tuple[str, str]:
     source = environ if environ is not None else os.environ
     for name in env_names:
         value = source.get(name)

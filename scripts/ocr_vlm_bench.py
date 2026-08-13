@@ -89,8 +89,21 @@ def _extract_hi_res(mezzanine: Path, times: list[float], out_dir: Path) -> list[
         out = out_dir / f"hi_{i:04d}.jpg"
         if not out.exists():
             subprocess.run(
-                ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{t_s:.3f}",
-                 "-i", str(mezzanine), "-frames:v", "1", "-q:v", "3", str(out)],
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-ss",
+                    f"{t_s:.3f}",
+                    "-i",
+                    str(mezzanine),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "3",
+                    str(out),
+                ],
                 check=False,
             )
         paths.append(out)
@@ -103,7 +116,10 @@ def _tesseract(paths: list[Path]) -> tuple[list[str], float]:
     for p in paths:
         r = subprocess.run(
             ["tesseract", str(p), "stdout", "--psm", PSM],
-            capture_output=True, text=True, timeout=60, check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
         out.append(r.stdout.strip())
     return out, (time.perf_counter() - start) / max(len(paths), 1)
@@ -134,11 +150,10 @@ def _florence(paths: list[Path]) -> tuple[list[str], float]:
             gen = model.generate(
                 **inputs, max_new_tokens=256, num_beams=1, do_sample=False, use_cache=True
             )
-        for img, raw in zip(images, processor.batch_decode(gen, skip_special_tokens=False),
-                            strict=True):
-            parsed = processor.post_process_generation(
-                raw, task=FLORENCE_TASK, image_size=img.size
-            )
+        for img, raw in zip(
+            images, processor.batch_decode(gen, skip_special_tokens=False), strict=True
+        ):
+            parsed = processor.post_process_generation(raw, task=FLORENCE_TASK, image_size=img.size)
             out.append(" ".join(str(parsed.get(FLORENCE_TASK, "")).split()))
             img.close()
     return out, (time.perf_counter() - start) / max(len(paths), 1)
@@ -197,7 +212,10 @@ def main() -> int:
         if len(hi) == len(frames):
             conditions["1080p"] = hi
         else:
-            print(f"warning: extracted {len(hi)}/{len(frames)} hi-res frames; skipping", file=sys.stderr)
+            print(
+                f"warning: extracted {len(hi)}/{len(frames)} hi-res frames; skipping",
+                file=sys.stderr,
+            )
 
     report: dict = {"n_frames": len(frames), "results": {}}
     rows = []
@@ -210,12 +228,16 @@ def main() -> int:
             report["results"][f"{engine}@{res}"]["texts"] = texts
             rows.append((f"{engine}@{res}", scored))
 
-    print(f"{'condition':>18} {'frames':>7} {'tokens':>7} {'redund':>7} {'novel':>6} "
-          f"{'noise':>6} {'noise%':>7} {'s/frame':>8}")
+    print(
+        f"{'condition':>18} {'frames':>7} {'tokens':>7} {'redund':>7} {'novel':>6} "
+        f"{'noise':>6} {'noise%':>7} {'s/frame':>8}"
+    )
     for name, s in rows:
-        print(f"{name:>18} {s['frames_with_text']:>7} {s['tokens']:>7} {s['redundant']:>7} "
-              f"{s['novel']:>6} {s['noise']:>6} {100*s['noise_share']:>6.1f}% "
-              f"{s['seconds_per_frame']:>8.2f}")
+        print(
+            f"{name:>18} {s['frames_with_text']:>7} {s['tokens']:>7} {s['redundant']:>7} "
+            f"{s['novel']:>6} {s['noise']:>6} {100 * s['noise_share']:>6.1f}% "
+            f"{s['seconds_per_frame']:>8.2f}"
+        )
 
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(report, indent=2))

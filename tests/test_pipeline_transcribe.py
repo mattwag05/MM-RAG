@@ -127,9 +127,7 @@ async def test_transcribe_uses_subtitles_when_present(monkeypatch, tmp_path) -> 
         {"scene_idx": 0, "start_s": 0.0, "end_s": 2.0},
         {"scene_idx": 1, "start_s": 2.0, "end_s": 4.0},
     ]
-    result = await transcribe(
-        audio_path=str(SAMPLE_WAV), scenes=scenes, subtitle_path=str(vtt)
-    )
+    result = await transcribe(audio_path=str(SAMPLE_WAV), scenes=scenes, subtitle_path=str(vtt))
     segments = result["segments"]
 
     assert result["transcript_source"] == "captions"
@@ -144,8 +142,6 @@ async def test_transcribe_missing_subtitle_file_falls_back_to_asr(monkeypatch) -
         return [{"start": 0.0, "end": 1.0, "text": "from asr"}]
 
     monkeypatch.setattr(transcribe_mod, "_run_speech_to_text", fake_stt)
-    result = await transcribe(
-        audio_path=str(SAMPLE_WAV), scenes=[], subtitle_path="/tmp/nope.vtt"
-    )
+    result = await transcribe(audio_path=str(SAMPLE_WAV), scenes=[], subtitle_path="/tmp/nope.vtt")
     assert result["transcript_source"] == "asr"
     assert [s["text"] for s in result["segments"]] == ["from asr"]

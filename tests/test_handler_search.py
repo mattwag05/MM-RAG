@@ -331,7 +331,9 @@ def test_rrf_fuse_scores_a_key_once_per_stream() -> None:
     ]
     single = [_StreamHit(scene_id=9, score=10.0, snippet="only row", source="fts_transcript")]
 
-    fused = dict((hit.scene_id, score) for score, hit, _ in _rrf_fuse([duplicated, single], top_k=5))
+    fused = dict(
+        (hit.scene_id, score) for score, hit, _ in _rrf_fuse([duplicated, single], top_k=5)
+    )
 
     # Both are rank 0 of one stream at full score, so they must tie. Counting
     # the duplicate would push scene 7 strictly ahead.

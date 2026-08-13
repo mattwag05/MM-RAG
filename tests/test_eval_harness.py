@@ -147,8 +147,7 @@ async def test_run_eval_unresolved_gold_scores_zero(
 ) -> None:
     dataset = tmp_path / "ds.jsonl"
     dataset.write_text(
-        json.dumps({"id": "q1", "question": "anything", "gold": [{"source": "missing.mp4"}]})
-        + "\n"
+        json.dumps({"id": "q1", "question": "anything", "gold": [{"source": "missing.mp4"}]}) + "\n"
     )
     report = await run_eval(EvalConfig(dataset=dataset, top_k=5, mode="fts"))
     assert report.n_gold_unresolved == 1

@@ -15,8 +15,7 @@ def test_failed_migration_rolls_back_sql_and_tracking_row(tmp_path, monkeypatch)
         lambda: [
             (
                 "9999_broken.sql",
-                "CREATE TABLE should_rollback (id INTEGER PRIMARY KEY);"
-                "SELECT missing_function();",
+                "CREATE TABLE should_rollback (id INTEGER PRIMARY KEY);SELECT missing_function();",
             )
         ],
     )
