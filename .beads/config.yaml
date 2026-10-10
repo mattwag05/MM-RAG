@@ -1,0 +1,5 @@
+dolt.auto-push: false
+export.auto: false
+export.git-add: false
+sync:
+    remote: "git+https://github.com/mattwag05/MM-RAG.git"
