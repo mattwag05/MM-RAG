@@ -63,3 +63,11 @@ node_modules/
 CLAUDE.md
 AGENTS.md
 .beads/
+
+# Native Beads bootstrap files; issue data stays in refs/dolt/data.
+!/.beads/
+/.beads/*
+!/.beads/.gitignore
+!/.beads/config.yaml
+!/.beads/metadata.json
+!/.beads/README.md
